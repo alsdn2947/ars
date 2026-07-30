@@ -1,0 +1,329 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ARS 멘트 스튜디오</title>
+<style>
+  :root { --blue:#2563eb; --blue-d:#1d4ed8; --bg:#f4f6f8; --line:#e2e6ea; --mut:#66778a; }
+  * { box-sizing:border-box; }
+  body { font-family:-apple-system,"Malgun Gothic","Noto Sans KR",sans-serif;
+         margin:0; background:var(--bg); color:#1d2733; }
+  header { background:#fff; border-bottom:1px solid var(--line); padding:.7rem 1.2rem;
+           display:flex; align-items:center; gap:1rem; }
+  header h1 { font-size:1.05rem; margin:0; }
+  header .spacer { flex:1; }
+  header .who { font-size:.85rem; color:var(--mut); }
+  main { display:grid; grid-template-columns:230px 260px 1fr; gap:0; min-height:calc(100vh - 53px); }
+  .col { border-right:1px solid var(--line); background:#fff; padding:1rem; overflow-y:auto; }
+  .col h2 { font-size:.8rem; text-transform:uppercase; letter-spacing:.05em;
+            color:var(--mut); margin:.2rem 0 .8rem; }
+  .item { padding:.55rem .7rem; border-radius:8px; cursor:pointer; font-size:.92rem;
+          margin-bottom:.15rem; }
+  .item:hover { background:#eef2f7; }
+  .item.sel { background:#e0eaff; color:var(--blue-d); font-weight:600; }
+  .editor { padding:1.2rem 1.5rem; overflow-y:auto; }
+  button { border:0; border-radius:8px; padding:.55rem .95rem; font-size:.9rem;
+           cursor:pointer; background:#e8edf3; }
+  button:hover { background:#dde4ec; }
+  button.primary { background:var(--blue); color:#fff; }
+  button.primary:hover { background:var(--blue-d); }
+  button.small { padding:.35rem .6rem; font-size:.8rem; }
+  input[type=text], textarea, select {
+    width:100%; padding:.6rem .7rem; border:1px solid #ccd4dc; border-radius:8px;
+    font-size:.95rem; font-family:inherit; background:#fff; }
+  textarea { min-height:180px; line-height:1.7; resize:vertical; }
+  .row { display:flex; gap:.7rem; align-items:center; flex-wrap:wrap; margin:.8rem 0; }
+  .row label { font-size:.82rem; color:var(--mut); display:flex; flex-direction:column; gap:.25rem; }
+  .hint { font-size:.78rem; color:var(--mut); margin:.3rem 0 0; }
+  .preview { background:#fff; border:1px solid var(--line); border-radius:10px;
+             padding:1rem; margin-top:1rem; font-size:.9rem; }
+  .preview .seg { display:flex; justify-content:space-between; gap:1rem;
+                  padding:.25rem 0; border-bottom:1px dashed #eef; }
+  .preview .seg .pause { color:var(--mut); white-space:nowrap; }
+  .renders { margin-top:1.2rem; }
+  .render-row { display:flex; align-items:center; gap:.8rem; background:#fff;
+                border:1px solid var(--line); border-radius:10px; padding:.6rem .9rem;
+                margin-bottom:.5rem; font-size:.87rem; flex-wrap:wrap; }
+  .badge { font-size:.75rem; border-radius:6px; padding:.15rem .5rem; }
+  .badge.done { background:#d9f2e3; color:#137a43; }
+  .badge.error { background:#fde2e0; color:#b3352c; }
+  .badge.queued, .badge.running { background:#fdf0d4; color:#96690e; }
+  .locked { display:flex; align-items:center; justify-content:center; min-height:100vh; }
+  .locked .card { background:#fff; border-radius:12px; padding:2.2rem;
+                  box-shadow:0 4px 20px rgba(0,0,0,.08); max-width:400px; text-align:center; }
+  dialog { border:0; border-radius:12px; box-shadow:0 8px 30px rgba(0,0,0,.2);
+           padding:1.4rem; width:min(92vw,420px); }
+  dialog h3 { margin:0 0 .8rem; font-size:1rem; }
+  .copybox { display:flex; gap:.5rem; margin:.6rem 0; }
+  .copybox input { flex:1; font-size:.82rem; }
+  .empty { color:var(--mut); font-size:.85rem; }
+  audio { height:32px; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+<script>
+const $ = sel => document.querySelector(sel);
+const state = { me:null, meta:null, projects:[], projectId:null,
+                ments:[], mentId:null, ment:null, renders:[], pollTimer:null };
+
+async function api(path, opts={}) {
+  const res = await fetch(path, {
+    headers: {'Content-Type':'application/json'},
+    ...opts,
+    body: opts.body ? JSON.stringify(opts.body) : undefined,
+  });
+  if (res.status === 401) { renderLocked(); throw new Error('unauthorized'); }
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.detail || `요청 실패 (${res.status})`);
+  }
+  return res.json();
+}
+
+function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+function renderLocked() {
+  document.getElementById('app').innerHTML = `
+    <div class="locked"><div class="card">
+      <h1 style="font-size:1.15rem">ARS 멘트 스튜디오</h1>
+      <p style="color:#556;font-size:.9rem">이 서비스는 초대된 사용자만 이용할 수 있습니다.<br>
+      관리자에게 받은 <b>초대 링크</b> 또는 <b>개인 접속 링크</b>로 접속해 주세요.</p>
+    </div></div>`;
+}
+
+// ── 레이아웃 ─────────────────────────────────────────────
+
+function renderShell() {
+  const isAdmin = state.me.role === 'admin';
+  document.getElementById('app').innerHTML = `
+  <header>
+    <h1>🎙 ARS 멘트 스튜디오</h1>
+    <div class="spacer"></div>
+    <span class="who">${esc(state.me.name)} (${isAdmin ? '관리자' : '편집자'})</span>
+    <button class="small" id="myLink">내 접속 링크</button>
+    <button class="small" id="logout">로그아웃</button>
+  </header>
+  <main>
+    <div class="col">
+      <h2>프로젝트</h2>
+      <div id="projects"></div>
+      ${isAdmin ? '<button class="small" id="newProject" style="margin-top:.6rem">+ 새 프로젝트</button>' : ''}
+      <div id="adminBox"></div>
+    </div>
+    <div class="col">
+      <h2>멘트</h2>
+      <div id="ments"></div>
+      <button class="small" id="newMent" style="margin-top:.6rem">+ 새 멘트</button>
+    </div>
+    <div class="editor" id="editor"><p class="empty">왼쪽에서 멘트를 선택하거나 새로 만드세요.</p></div>
+  </main>
+  <dialog id="dlg"></dialog>`;
+
+  $('#logout').onclick = async () => { await api('/api/logout', {method:'POST'}); location.reload(); };
+  $('#myLink').onclick = () => showCopyDialog('내 개인 접속 링크',
+    location.origin + state.me.personal_link,
+    '이 링크로 다른 기기에서도 로그인할 수 있습니다. 타인과 공유하지 마세요.');
+  if (isAdmin) $('#newProject').onclick = createProject;
+  $('#newMent').onclick = createMent;
+}
+
+function showCopyDialog(title, text, note) {
+  const dlg = $('#dlg');
+  dlg.innerHTML = `<h3>${esc(title)}</h3>
+    <div class="copybox"><input value="${esc(text)}" readonly id="copyVal">
+    <button class="small" id="copyBtn">복사</button></div>
+    <p class="hint">${esc(note || '')}</p>
+    <button class="small" onclick="this.closest('dialog').close()">닫기</button>`;
+  dlg.showModal();
+  $('#copyBtn').onclick = () => { navigator.clipboard.writeText(text); $('#copyBtn').textContent = '복사됨'; };
+}
+
+// ── 프로젝트 ─────────────────────────────────────────────
+
+async function loadProjects() {
+  state.projects = await api('/api/projects');
+  const el = $('#projects');
+  el.innerHTML = state.projects.map(p =>
+    `<div class="item ${p.id===state.projectId?'sel':''}" data-id="${p.id}">${esc(p.name)}</div>`
+  ).join('') || '<p class="empty">프로젝트가 없습니다.</p>';
+  el.querySelectorAll('.item').forEach(it => it.onclick = () => selectProject(+it.dataset.id));
+  renderAdminBox();
+}
+
+function renderAdminBox() {
+  const box = $('#adminBox');
+  if (!box || state.me.role !== 'admin' || !state.projectId) { if (box) box.innerHTML=''; return; }
+  box.innerHTML = `<h2 style="margin-top:1.4rem">관리</h2>
+    <button class="small" id="mkInvite">🔗 초대 링크 발급</button>
+    <div id="memberList" style="margin-top:.6rem;font-size:.82rem;color:var(--mut)"></div>`;
+  $('#mkInvite').onclick = async () => {
+    const r = await api(`/api/projects/${state.projectId}/invites`, {method:'POST', body:{max_uses:10, expires_days:14}});
+    showCopyDialog('초대 링크 (10회 / 14일 유효)', location.origin + r.invite_link,
+      '이 링크를 받은 사람만 이 프로젝트에 참여할 수 있습니다.');
+  };
+  api(`/api/projects/${state.projectId}/members`).then(ms => {
+    $('#memberList').innerHTML = '참여자: ' + (ms.map(m => esc(m.name)).join(', ') || '없음');
+  });
+}
+
+async function createProject() {
+  const name = prompt('프로젝트 이름');
+  if (!name) return;
+  const p = await api('/api/projects', {method:'POST', body:{name}});
+  state.projectId = p.id;
+  await loadProjects(); await loadMents();
+}
+
+async function selectProject(id) {
+  state.projectId = id; state.mentId = null; state.ment = null;
+  $('#editor').innerHTML = '<p class="empty">멘트를 선택하세요.</p>';
+  await loadProjects(); await loadMents();
+}
+
+// ── 멘트 목록/편집 ───────────────────────────────────────
+
+async function loadMents() {
+  if (!state.projectId) { $('#ments').innerHTML = '<p class="empty">프로젝트를 먼저 선택하세요.</p>'; return; }
+  state.ments = await api(`/api/projects/${state.projectId}/ments`);
+  const el = $('#ments');
+  el.innerHTML = state.ments.map(m =>
+    `<div class="item ${m.id===state.mentId?'sel':''}" data-id="${m.id}">${esc(m.title)}</div>`
+  ).join('') || '<p class="empty">멘트가 없습니다.</p>';
+  el.querySelectorAll('.item').forEach(it => it.onclick = () => selectMent(+it.dataset.id));
+}
+
+async function createMent() {
+  if (!state.projectId) { alert('프로젝트를 먼저 선택하세요.'); return; }
+  const title = prompt('멘트 제목 (예: 평일 인사말)');
+  if (!title) return;
+  const r = await api(`/api/projects/${state.projectId}/ments`, {method:'POST',
+    body:{title, body:'', options:{}}});
+  await loadMents(); selectMent(r.id);
+}
+
+async function selectMent(id) {
+  state.mentId = id;
+  state.ment = await api(`/api/ments/${id}`);
+  await loadMents();
+  renderEditor();
+  await loadRenders();
+}
+
+function optSelect(id, list, cur, labels={}) {
+  return `<select id="${id}">` + list.map(v =>
+    `<option value="${v}" ${v===cur?'selected':''}>${labels[v]||v}</option>`).join('') + '</select>';
+}
+
+function renderEditor() {
+  const m = state.ment, o = m.options || {};
+  const voiceLabels = {female_calm:'차분한 여성 (기본)', female_bright:'밝은 여성',
+                       male_calm:'차분한 남성', male_deep:'저음 남성', multilingual:'다국어'};
+  const bgmLabels = {calm:'잔잔한 BGM (기본)', bright:'밝은 BGM', none:'BGM 없음'};
+  $('#editor').innerHTML = `
+    <div class="row" style="justify-content:space-between">
+      <input type="text" id="title" value="${esc(m.title)}" style="max-width:420px;font-weight:600">
+      <div style="display:flex;gap:.5rem">
+        <button id="save" class="primary">저장</button>
+        <button id="del">삭제</button>
+      </div>
+    </div>
+    <textarea id="body" placeholder="안내 멘트를 자연어로 입력하세요.
+예) 안녕하십니까. 고객센터입니다. 상담원 연결을 원하시면 0번을 눌러 주세요.
+끊어읽기 수동 표기: / 짧은 쉼, // 긴 쉼">${esc(m.body)}</textarea>
+    <p class="hint">숫자·전화번호·시각·영문은 자동으로 성우 발음으로 변환됩니다. (예: 1588-1234 → 일오팔팔, 일이삼사)</p>
+    <div class="row">
+      <label>성우 ${optSelect('voice', state.meta.voices, o.voice || 'female_calm', voiceLabels)}</label>
+      <label>배경음악 ${optSelect('bgm', state.meta.bgms, o.bgm || 'calm', bgmLabels)}</label>
+      <label>출력 형식 ${optSelect('format', state.meta.formats, o.format || 'mp3')}</label>
+      <label>BGM 음량(dB) <input type="text" id="gain" value="${o.bgm_gain_db ?? -16}" style="width:70px"></label>
+      <label style="flex-direction:row;align-items:center;gap:.4rem">
+        <input type="checkbox" id="tel" ${o.telephone?'checked':''}> 전화망 음질</label>
+    </div>
+    <div class="row">
+      <button id="previewBtn">📋 끊어읽기 대본 미리보기</button>
+      <button id="renderBtn" class="primary">🔊 음원 생성</button>
+    </div>
+    <div id="previewBox"></div>
+    <div class="renders"><h2 style="font-size:.8rem;color:var(--mut);text-transform:uppercase">생성 이력</h2>
+      <div id="renderList"></div></div>`;
+
+  $('#save').onclick = saveMent;
+  $('#del').onclick = deleteMent;
+  $('#previewBtn').onclick = showPreview;
+  $('#renderBtn').onclick = startRender;
+}
+
+function collectOptions() {
+  return {
+    voice: $('#voice').value, bgm: $('#bgm').value, format: $('#format').value,
+    bgm_gain_db: parseFloat($('#gain').value) || -16, telephone: $('#tel').checked,
+  };
+}
+
+async function saveMent(silent) {
+  await api(`/api/ments/${state.mentId}`, {method:'PUT', body:{
+    title: $('#title').value, body: $('#body').value, options: collectOptions()}});
+  if (silent !== true) await loadMents();
+}
+
+async function deleteMent() {
+  if (!confirm('이 멘트와 생성 이력을 삭제할까요?')) return;
+  await api(`/api/ments/${state.mentId}`, {method:'DELETE'});
+  state.mentId = null; state.ment = null;
+  $('#editor').innerHTML = '<p class="empty">멘트를 선택하세요.</p>';
+  await loadMents();
+}
+
+async function showPreview() {
+  const r = await api('/api/preview', {method:'POST', body:{body: $('#body').value}});
+  $('#previewBox').innerHTML = `<div class="preview">` + (r.segments.map(s =>
+    `<div class="seg"><span>${esc(s.text)}</span><span class="pause">쉼 ${(s.pause_ms/1000).toFixed(2)}초</span></div>`
+  ).join('') || '<span class="empty">내용이 없습니다.</span>') + '</div>';
+}
+
+// ── 렌더링 ───────────────────────────────────────────────
+
+async function startRender() {
+  await saveMent(true);
+  try {
+    await api(`/api/ments/${state.mentId}/render`, {method:'POST'});
+  } catch (e) { alert(e.message); return; }
+  await loadRenders();
+}
+
+async function loadRenders() {
+  if (!state.mentId) return;
+  state.renders = await api(`/api/ments/${state.mentId}/renders`);
+  const labels = {queued:'대기 중', running:'생성 중', done:'완료', error:'실패'};
+  $('#renderList').innerHTML = state.renders.map(r => `
+    <div class="render-row">
+      <span class="badge ${r.status}">${labels[r.status]||r.status}</span>
+      <span style="color:var(--mut)">#${r.id} · ${esc(r.requested_by)} · ${r.created_at.replace('T',' ').slice(0,16)}</span>
+      ${r.status==='done' ? `<audio controls preload="none" src="/api/renders/${r.id}/download"></audio>
+        <a href="/api/renders/${r.id}/download" download><button class="small">다운로드</button></a>` : ''}
+      ${r.status==='error' ? `<span style="color:#b3352c">${esc(r.error||'')}</span>` : ''}
+    </div>`).join('') || '<p class="empty">아직 생성한 음원이 없습니다.</p>';
+
+  clearTimeout(state.pollTimer);
+  if (state.renders.some(r => r.status === 'queued' || r.status === 'running')) {
+    state.pollTimer = setTimeout(loadRenders, 1500);
+  }
+}
+
+// ── 시작 ─────────────────────────────────────────────────
+
+(async function init() {
+  try {
+    state.me = await api('/api/me');
+  } catch { return; }
+  state.meta = await api('/api/meta');
+  renderShell();
+  await loadProjects();
+  if (state.projects.length) await selectProject(state.projects[0].id);
+})();
+</script>
+</body>
+</html>

@@ -12,13 +12,19 @@ dependencies = [
     "edge-tts>=7.0",
     "pydub>=0.25",
     "numpy>=1.24",
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0"]
+dev = ["pytest>=8.0", "httpx>=0.27"]
 
 [project.scripts]
 ars-voice = "ars_voice.cli:main"
+ars-voice-web = "ars_voice.web.server:main"
 
 [tool.setuptools.packages.find]
 include = ["ars_voice*"]
+
+[tool.setuptools.package-data]
+"ars_voice.web" = ["static/*.html"]
