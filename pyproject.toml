@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ars-voice"
+version = "0.1.0"
+description = "자연어 텍스트를 ARS 전문 성우 스타일 음원(배경음악 포함)으로 변환하는 파이프라인"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "edge-tts>=7.0",
+    "pydub>=0.25",
+    "numpy>=1.24",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+ars-voice = "ars_voice.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["ars_voice*"]
