@@ -44,7 +44,7 @@ class PreviewBody(BaseModel):
     body: str = Field(max_length=20000)
     auto_phrase: bool = True
     normalize_text: bool = True
-    phrasing: str = "natural"
+    phrasing: str = "flow"
 
 
 def create_app(data_dir: str | Path = "data") -> FastAPI:
@@ -256,7 +256,7 @@ def create_app(data_dir: str | Path = "data") -> FastAPI:
 
     @app.post("/api/preview")
     def preview(body: PreviewBody, user=Depends(current_user)):
-        phrasing = body.phrasing if body.phrasing in ("natural", "precise") else "natural"
+        phrasing = body.phrasing if body.phrasing in ("flow", "natural", "precise") else "flow"
         script = make_script(
             body.body,
             RenderOptions(

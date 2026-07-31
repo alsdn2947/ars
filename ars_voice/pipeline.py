@@ -19,7 +19,7 @@ class RenderOptions:
     telephone: bool = False             # 전화망 음질 시뮬레이션
     auto_phrase: bool = True            # 자동 구절 분할 (precise 모드에서만)
     normalize_text: bool = True         # 발음 정규화 (숫자/영문 → 한글)
-    phrasing: str = "natural"           # "natural"(문장 단위) | "precise"(구절 단위)
+    phrasing: str = "flow"              # "flow"(한 호흡) | "natural"(문장 단위) | "precise"(구절 단위)
     pause_profile: PauseProfile = field(default_factory=PauseProfile)
 
 

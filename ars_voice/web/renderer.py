@@ -37,9 +37,9 @@ def options_from_json(raw: str) -> RenderOptions:
     """멘트에 저장된 옵션 JSON → RenderOptions."""
     data = json.loads(raw or "{}")
     bgm = data.get("bgm", "calm")
-    phrasing = data.get("phrasing", "natural")
-    if phrasing not in ("natural", "precise"):
-        phrasing = "natural"
+    phrasing = data.get("phrasing", "flow")
+    if phrasing not in ("flow", "natural", "precise"):
+        phrasing = "flow"
     return RenderOptions(
         engine=data.get("engine", "edge"),
         voice=data.get("voice", "female_calm"),

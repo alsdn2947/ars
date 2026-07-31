@@ -85,15 +85,30 @@ def build_script(
     """자연어 텍스트를 낭독 세그먼트 목록으로 변환한다.
 
     phrasing:
-    - "natural" (기본): 문장 단위로만 나눠 합성한다. 문장 안의 쉼표 억양은
-      TTS 엔진이 자연스럽게 처리하고, 우리는 문장 사이 쉼과 수동 표기
-      (`/`, `//`)만 제어한다. 구절별 합성에서 생기는 뚝뚝 끊기는 느낌이 없다.
+    - "flow": 멘트 전체를 한 번에 합성한다. 문장 사이 호흡과 흐름까지
+      엔진이 처리해 가장 자연스럽다. 수동 표기는 문장 부호로 변환된다
+      (`/` → 쉼표, `//` → 마침표). 쉼 길이의 개별 제어는 포기한다.
+    - "natural": 문장 단위로 나눠 합성한다. 문장 안 억양은 엔진이
+      처리하고, 문장 사이 쉼과 수동 표기(`/`, `//`)를 우리가 제어한다.
     - "precise": 쉼표·구절 경계까지 모두 분할해 쉼 길이를 정밀 제어한다.
       (엔진 억양은 다소 딱딱해질 수 있다)
     """
     profile = profile or PauseProfile()
-    if phrasing not in ("natural", "precise"):
+    if phrasing not in ("flow", "natural", "precise"):
         raise ValueError(f"알 수 없는 phrasing 모드: {phrasing}")
+
+    if phrasing == "flow":
+        flow = text.replace("//", ". ").replace("/", ", ")
+        flow = re.sub(r"\n\s*\n", ". ", flow).replace("\n", " ")
+        if apply_normalize:
+            flow = normalize(flow)
+        # 마커 변환으로 생긴 중복 문장 부호 정리
+        flow = re.sub(r"([.!?。])\s*[.]", r"\1", flow)
+        flow = re.sub(r",\s*,", ",", flow)
+        flow = re.sub(r"\s+([.,!?])", r"\1", flow)
+        flow = re.sub(r"\s{2,}", " ", flow).strip()
+        segments = [Segment(flow, profile.tail_ms)] if flow.strip(".,!?。 ") else []
+        return Script(segments=segments, profile=profile)
 
     # 수동 쉼 표기를 마커로 치환 (긴 것 먼저)
     text = text.replace("//", _LONG_MARK).replace("/", _SHORT_MARK)

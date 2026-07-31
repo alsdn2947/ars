@@ -243,7 +243,7 @@ function bgmOptionsHtml(cur) {
 
 function renderEditor() {
   const m = state.ment, o = m.options || {};
-  const phrasingLabels = {natural:'자연스럽게 (기본)', precise:'구절 단위 정밀 제어'};
+  const phrasingLabels = {flow:'한 호흡 (가장 자연스러움, 기본)', natural:'문장 단위', precise:'구절 단위 정밀 제어'};
   const engineLabels = {};
   state.meta.engines.forEach(e => engineLabels[e.id] = e.label + (e.available ? '' : ' — 비활성'));
   const curEngine = engineById(o.engine || 'edge').id;
@@ -262,7 +262,7 @@ function renderEditor() {
     <div class="row">
       <label>엔진 ${optSelect('engine', state.meta.engines.map(e=>e.id), curEngine, engineLabels)}</label>
       <label>성우 <span id="voiceSlot">${voiceControlHtml(curEngine, o.voice)}</span></label>
-      <label>끊어읽기 ${optSelect('phrasing', ['natural','precise'], o.phrasing || 'natural', phrasingLabels)}</label>
+      <label>끊어읽기 ${optSelect('phrasing', ['flow','natural','precise'], o.phrasing || 'flow', phrasingLabels)}</label>
       <label>배경음악 ${bgmOptionsHtml(o.bgm || 'calm')}</label>
       <label>BGM 음량(dB) <input type="text" id="gain" value="${o.bgm_gain_db ?? -16}" style="width:70px"></label>
       <label style="flex-direction:row;align-items:center;gap:.4rem">

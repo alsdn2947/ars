@@ -51,9 +51,17 @@ def test_google_payload(monkeypatch):
     assert data["voice"]["name"] == "ko-KR-Wavenet-D"
     assert data["voice"]["languageCode"] == "ko-KR"
     assert data["audioConfig"]["audioEncoding"] == "MP3"
-    # 알 수 없는 화자는 기본 화자로 대체
-    assert engines.create_engine("google", "이상한값").voice == "ko-KR-Neural2-A"
+    assert data["audioConfig"]["speakingRate"] == 0.93
+    # 알 수 없는 화자는 기본 화자(Chirp3 HD)로 대체
+    assert engines.create_engine("google", "이상한값").voice == "ko-KR-Chirp3-HD-Aoede"
     assert {e["id"]: e for e in engines.engine_catalog()}["google"]["available"] is True
+
+
+def test_google_chirp3_omits_unsupported_params(monkeypatch):
+    monkeypatch.setenv("GOOGLE_TTS_API_KEY", "gkey")
+    engine = engines.create_engine("google", "ko-KR-Chirp3-HD-Aoede")
+    data = json.loads(engine._payload("안내입니다."))
+    assert "speakingRate" not in data["audioConfig"]
 
 
 def test_openai_payload(monkeypatch):

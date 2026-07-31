@@ -18,6 +18,27 @@ def test_comma_split_precise():
     assert script.segments[0].pause_ms == profile.comma_ms
 
 
+def test_flow_mode_single_segment():
+    """flow 모드: 전체 멘트가 한 세그먼트로 합쳐져 엔진이 흐름을 처리한다."""
+    profile = PauseProfile()
+    script = build_script(
+        "안녕하십니까. 고객센터입니다. / 상담원 연결은 0번입니다. // 감사합니다.",
+        phrasing="flow", profile=profile,
+    )
+    assert len(script.segments) == 1
+    text = script.segments[0].text
+    # 수동 표기는 문장 부호로 변환된다
+    assert "/" not in text
+    assert "안녕하십니까." in text and "감사합니다." in text
+    assert "영번입니다" in text  # 발음 정규화도 적용
+    assert script.segments[0].pause_ms == profile.tail_ms
+
+
+def test_flow_mode_empty_text():
+    script = build_script("   ", phrasing="flow")
+    assert script.segments == []
+
+
 def test_natural_mode_keeps_sentence_whole():
     """natural 모드: 쉼표는 분할하지 않고 문장 전체를 한 세그먼트로 유지."""
     script = build_script("첫째, 둘째, 셋째입니다. 감사합니다.", auto_phrase=True, phrasing="natural")

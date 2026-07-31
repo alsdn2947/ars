@@ -142,6 +142,11 @@ class ElevenLabsTTS:
 
 
 GOOGLE_VOICES = {
+    # Chirp3 HD: 최신 생성형 음성 — Neural2보다 훨씬 자연스럽다. 우선 추천.
+    "ko-KR-Chirp3-HD-Aoede": "Chirp3 HD Aoede (여성, 최신·가장 자연스러움)",
+    "ko-KR-Chirp3-HD-Kore": "Chirp3 HD Kore (여성, 최신)",
+    "ko-KR-Chirp3-HD-Charon": "Chirp3 HD Charon (남성, 최신)",
+    "ko-KR-Chirp3-HD-Orus": "Chirp3 HD Orus (남성, 최신)",
     "ko-KR-Neural2-A": "Neural2 A (여성)",
     "ko-KR-Neural2-B": "Neural2 B (여성)",
     "ko-KR-Neural2-C": "Neural2 C (남성)",
@@ -155,19 +160,22 @@ class GoogleTTS:
 
     ENDPOINT = "https://texttospeech.googleapis.com/v1/text:synthesize"
 
-    def __init__(self, voice: str = "ko-KR-Neural2-A"):
+    def __init__(self, voice: str = "ko-KR-Chirp3-HD-Aoede"):
         self.api_key = os.environ.get("GOOGLE_TTS_API_KEY", "")
         if not self.api_key:
             raise MissingAPIKey("GOOGLE_TTS_API_KEY 환경 변수가 필요합니다.")
-        self.voice = voice if voice in GOOGLE_VOICES else "ko-KR-Neural2-A"
+        self.voice = voice if voice in GOOGLE_VOICES else "ko-KR-Chirp3-HD-Aoede"
 
     def _payload(self, text: str) -> bytes:
+        audio_config: dict = {"audioEncoding": "MP3"}
+        # Chirp3 HD는 speakingRate 등 세부 파라미터를 지원하지 않는다
+        if "Chirp3" not in self.voice:
+            audio_config["speakingRate"] = 0.93  # 안내 방송 톤: 살짝 느리게
         return json.dumps(
             {
                 "input": {"text": text},
                 "voice": {"languageCode": "ko-KR", "name": self.voice},
-                # 안내 방송 톤: 살짝 느리게
-                "audioConfig": {"audioEncoding": "MP3", "speakingRate": 0.93},
+                "audioConfig": audio_config,
             }
         ).encode()
 
@@ -197,9 +205,11 @@ OPENAI_VOICES = {
 
 # gpt-4o-mini-tts는 자연어 톤 지시를 지원한다 — ARS 성우 톤을 명시한다.
 _OPENAI_STYLE = (
-    "당신은 한국어 ARS 안내 방송 전문 성우입니다. "
-    "차분하고 신뢰감 있는 톤으로, 또박또박 약간 느리게, "
-    "존댓말 안내 방송 특유의 정중한 억양으로 읽어 주세요."
+    "당신은 한국어 ARS 전화 안내 방송을 녹음하는 전문 성우입니다. "
+    "밝지만 차분하고 신뢰감 있는 목소리로, 안내 방송 특유의 정중한 존댓말 억양을 쓰세요. "
+    "속도는 약간 느리게, 발음은 또박또박, 문장 사이에는 여유 있는 호흡을 두고, "
+    "쉼표에서는 짧게 끊어 읽으세요. 절대 로봇처럼 단조롭게 읽지 말고, "
+    "실제 사람이 스튜디오 마이크 앞에서 녹음하듯 자연스러운 높낮이와 호흡으로 읽어 주세요."
 )
 
 
@@ -278,7 +288,7 @@ def engine_catalog() -> list[dict]:
             "available": google_available(),
             "voices": list(GOOGLE_VOICES),
             "voice_labels": GOOGLE_VOICES,
-            "default_voice": "ko-KR-Neural2-A",
+            "default_voice": "ko-KR-Chirp3-HD-Aoede",
             "hint": "서버 환경 변수 GOOGLE_TTS_API_KEY 설정 시 활성화",
         },
         {
