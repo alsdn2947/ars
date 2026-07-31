@@ -32,6 +32,15 @@ def main(argv: list[str] | None = None) -> int:
         print(f"새 관리자 접속 링크:  http://<서버주소>:{args.port}/join/{token}")
         return 0
 
+    # 이 서버 프로세스가 실제로 보는 엔진 활성 상태를 출력한다.
+    # (웹 화면과 다르면 키 환경 변수가 이 프로세스에 전달되지 않은 것)
+    from ars_voice.engines import engine_catalog
+
+    print("TTS 엔진 상태:")
+    for e in engine_catalog():
+        mark = "✅ 활성" if e["available"] else "⛔ 비활성 (API 키 없음)"
+        print(f"  {mark}  {e['label']}")
+
     token = db.ensure_admin(db_path)
     if token:
         print("=" * 64)
