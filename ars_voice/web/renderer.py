@@ -19,10 +19,10 @@ from ars_voice.web import db
 _EXECUTOR = ThreadPoolExecutor(max_workers=2, thread_name_prefix="ars-render")
 
 
-def _default_engine_factory(voice: str):
-    from ars_voice.tts import EdgeTTS
+def _default_engine_factory(engine_id: str, voice: str):
+    from ars_voice.engines import create_engine
 
-    return EdgeTTS(voice)
+    return create_engine(engine_id, voice)
 
 
 ENGINE_FACTORY = _default_engine_factory
@@ -41,6 +41,7 @@ def options_from_json(raw: str) -> RenderOptions:
     if phrasing not in ("natural", "precise"):
         phrasing = "natural"
     return RenderOptions(
+        engine=data.get("engine", "edge"),
         voice=data.get("voice", "female_calm"),
         bgm=None if bgm in (None, "", "none") else bgm,
         bgm_gain_db=float(data.get("bgm_gain_db", -16.0)),
@@ -51,11 +52,31 @@ def options_from_json(raw: str) -> RenderOptions:
     )
 
 
-def submit(db_path: str, renders_dir: str, render_id: int) -> None:
-    _EXECUTOR.submit(_run, db_path, renders_dir, render_id)
+def resolve_bgm(bgm: str | None, bgm_dir: str) -> str | None:
+    """옵션의 BGM 값을 검증한다. 'file:이름'은 업로드 보관함 경로로 변환.
+
+    경로 주입을 막기 위해 프리셋 이름 또는 보관함 안의 파일명만 허용한다.
+    """
+    if bgm is None:
+        return None
+    from ars_voice.bgm import BGM_PRESETS
+
+    if bgm in BGM_PRESETS:
+        return bgm
+    if bgm.startswith("file:"):
+        name = Path(bgm[len("file:"):]).name  # 디렉터리 탈출 차단
+        path = Path(bgm_dir) / name
+        if not path.is_file():
+            raise ValueError(f"업로드된 BGM을 찾을 수 없습니다: {name}")
+        return str(path)
+    raise ValueError(f"알 수 없는 BGM: {bgm}")
 
 
-def _run(db_path: str, renders_dir: str, render_id: int) -> None:
+def submit(db_path: str, renders_dir: str, render_id: int, bgm_dir: str) -> None:
+    _EXECUTOR.submit(_run, db_path, renders_dir, render_id, bgm_dir)
+
+
+def _run(db_path: str, renders_dir: str, render_id: int, bgm_dir: str) -> None:
     row = db.get_render(db_path, render_id)
     if row is None:
         return
@@ -65,16 +86,12 @@ def _run(db_path: str, renders_dir: str, render_id: int) -> None:
         if ment is None:
             raise ValueError("멘트가 삭제되었습니다.")
         options = options_from_json(ment["options"])
-        # BGM 프리셋 외 값(파일 경로)은 웹에서는 허용하지 않는다 — 경로 주입 방지
-        from ars_voice.bgm import BGM_PRESETS
-
-        if options.bgm is not None and options.bgm not in BGM_PRESETS:
-            raise ValueError(f"알 수 없는 BGM 프리셋: {options.bgm}")
+        options.bgm = resolve_bgm(options.bgm, bgm_dir)
 
         Path(renders_dir).mkdir(parents=True, exist_ok=True)
         from ars_voice.pipeline import render_set
 
-        engine = ENGINE_FACTORY(options.voice)
+        engine = ENGINE_FACTORY(options.engine, options.voice)
         names = render_set(
             ment["body"], renders_dir, f"render_{render_id}",
             OUTPUT_SET, options, engine=engine,

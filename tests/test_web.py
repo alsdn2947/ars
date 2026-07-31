@@ -21,7 +21,7 @@ class FakeEngine:
 
 @pytest.fixture()
 def env(tmp_path, monkeypatch):
-    monkeypatch.setattr(renderer, "ENGINE_FACTORY", lambda voice: FakeEngine())
+    monkeypatch.setattr(renderer, "ENGINE_FACTORY", lambda engine, voice: FakeEngine())
     app = create_app(tmp_path)
     db_path = str(tmp_path / "ars.db")
     admin_token = db.ensure_admin(db_path)
@@ -170,6 +170,65 @@ def test_empty_ment_render_rejected(env):
     ment = client.post(f"/api/projects/{p['id']}/ments",
                        json={"title": "빈 멘트", "body": "", "options": {}}).json()
     assert client.post(f"/api/ments/{ment['id']}/render").status_code == 400
+
+
+def _wait_render(client, render_id):
+    for _ in range(100):
+        status = client.get(f"/api/renders/{render_id}").json()
+        if status["status"] in ("done", "error"):
+            return status
+        time.sleep(0.1)
+    return status
+
+
+def test_bgm_upload_and_use(env, tmp_path):
+    app, _, admin_token = env
+    client = login(app, admin_token)
+    p = client.post("/api/projects", json={"name": "P"}).json()
+
+    # 업로드 (저작권 무료 음원 대용으로 합성 wav 사용)
+    wav_path = tmp_path / "무료음원.wav"
+    Sine(220).to_audio_segment(duration=2000).apply_gain(-12).export(wav_path, format="wav")
+    res = client.post("/api/bgm/upload?name=무료음원.wav", content=wav_path.read_bytes())
+    assert res.status_code == 200
+    assert res.json()["name"] == "무료음원.wav"
+
+    # 목록/메타에 나타난다
+    assert any(f["name"] == "무료음원.wav" for f in client.get("/api/bgm").json())
+    meta = client.get("/api/meta").json()
+    assert any(f["name"] == "무료음원.wav" for f in meta["bgm_files"])
+    assert any(e["id"] == "edge" and e["available"] for e in meta["engines"])
+
+    # 업로드한 BGM으로 렌더링
+    ment = client.post(f"/api/projects/{p['id']}/ments", json={
+        "title": "업로드 BGM", "body": "안녕하세요.",
+        "options": {"bgm": "file:무료음원.wav"}}).json()
+    r = client.post(f"/api/ments/{ment['id']}/render").json()
+    status = _wait_render(client, r["render_id"])
+    assert status["status"] == "done", status.get("error")
+
+
+def test_bgm_upload_rejects_bad_files(env):
+    app, _, admin_token = env
+    client = login(app, admin_token)
+    assert client.post("/api/bgm/upload?name=evil.exe", content=b"x").status_code == 400
+    assert client.post("/api/bgm/upload?name=..%2F..%2Fx.mp3", content=b"x").status_code in (200, 400)
+    # 경로 탈출 시도는 basename으로 잘려 저장된다 — 상위 디렉터리에 파일이 생기지 않아야 함
+    files = [f["name"] for f in client.get("/api/bgm").json()]
+    assert all("/" not in f and ".." not in f for f in files)
+
+
+def test_unknown_uploaded_bgm_fails_gracefully(env):
+    app, _, admin_token = env
+    client = login(app, admin_token)
+    p = client.post("/api/projects", json={"name": "P"}).json()
+    ment = client.post(f"/api/projects/{p['id']}/ments", json={
+        "title": "없는 BGM", "body": "안녕하세요.",
+        "options": {"bgm": "file:없는파일.mp3"}}).json()
+    r = client.post(f"/api/ments/{ment['id']}/render").json()
+    status = _wait_render(client, r["render_id"])
+    assert status["status"] == "error"
+    assert "찾을 수 없습니다" in status["error"]
 
 
 def test_personal_link_relogin(env):

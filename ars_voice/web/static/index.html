@@ -217,12 +217,36 @@ function optSelect(id, list, cur, labels={}) {
     `<option value="${v}" ${v===cur?'selected':''}>${labels[v]||v}</option>`).join('') + '</select>';
 }
 
+function engineById(id) {
+  return state.meta.engines.find(e => e.id === id) || state.meta.engines[0];
+}
+
+function voiceControlHtml(engineId, curVoice) {
+  const eng = engineById(engineId);
+  if (eng.voices === null) {
+    return `<input type="text" id="voice" value="${esc(curVoice||'')}" placeholder="voice_id 입력" style="width:180px">`;
+  }
+  const cur = eng.voices.includes(curVoice) ? curVoice : eng.default_voice;
+  return optSelect('voice', eng.voices, cur, eng.voice_labels || {});
+}
+
+function bgmOptionsHtml(cur) {
+  const bgmLabels = {calm:'잔잔한 BGM (내장)', bright:'밝은 BGM (내장)', none:'BGM 없음'};
+  let html = state.meta.bgms.map(v =>
+    `<option value="${v}" ${v===cur?'selected':''}>${bgmLabels[v]||v}</option>`).join('');
+  html += state.meta.bgm_files.map(f => {
+    const val = 'file:' + f.name;
+    return `<option value="${esc(val)}" ${val===cur?'selected':''}>🎵 ${esc(f.name)}</option>`;
+  }).join('');
+  return `<select id="bgm">${html}</select>`;
+}
+
 function renderEditor() {
   const m = state.ment, o = m.options || {};
-  const voiceLabels = {female_calm:'차분한 여성 (기본)', female_bright:'밝은 여성',
-                       male_calm:'차분한 남성', male_deep:'저음 남성', multilingual:'다국어'};
-  const bgmLabels = {calm:'잔잔한 BGM (기본)', bright:'밝은 BGM', none:'BGM 없음'};
   const phrasingLabels = {natural:'자연스럽게 (기본)', precise:'구절 단위 정밀 제어'};
+  const engineLabels = {};
+  state.meta.engines.forEach(e => engineLabels[e.id] = e.label + (e.available ? '' : ' — 비활성'));
+  const curEngine = engineById(o.engine || 'edge').id;
   $('#editor').innerHTML = `
     <div class="row" style="justify-content:space-between">
       <input type="text" id="title" value="${esc(m.title)}" style="max-width:420px;font-weight:600">
@@ -236,14 +260,18 @@ function renderEditor() {
 끊어읽기 수동 표기: / 짧은 쉼, // 긴 쉼">${esc(m.body)}</textarea>
     <p class="hint">숫자·전화번호·시각·영문은 자동으로 성우 발음으로 변환됩니다. (예: 1588-1234 → 일오팔팔, 일이삼사)</p>
     <div class="row">
-      <label>성우 ${optSelect('voice', state.meta.voices, o.voice || 'female_calm', voiceLabels)}</label>
+      <label>엔진 ${optSelect('engine', state.meta.engines.map(e=>e.id), curEngine, engineLabels)}</label>
+      <label>성우 <span id="voiceSlot">${voiceControlHtml(curEngine, o.voice)}</span></label>
       <label>끊어읽기 ${optSelect('phrasing', ['natural','precise'], o.phrasing || 'natural', phrasingLabels)}</label>
-      <label>배경음악 ${optSelect('bgm', state.meta.bgms, o.bgm || 'calm', bgmLabels)}</label>
+      <label>배경음악 ${bgmOptionsHtml(o.bgm || 'calm')}</label>
       <label>BGM 음량(dB) <input type="text" id="gain" value="${o.bgm_gain_db ?? -16}" style="width:70px"></label>
       <label style="flex-direction:row;align-items:center;gap:.4rem">
         <input type="checkbox" id="tel" ${o.telephone?'checked':''}> 전화망 음질</label>
+      <label>&nbsp;<button class="small" id="bgmUpload">🎵 BGM 업로드</button></label>
     </div>
-    <p class="hint">음원 생성 시 <b>MP3</b>(미리듣기) · <b>WAV</b>(44.1kHz 16bit) · <b>VOX</b>(8kHz, 전화설비용) 3종이 함께 만들어집니다.</p>
+    <p class="hint" id="engineHint"></p>
+    <p class="hint">음원 생성 시 <b>MP3</b>(미리듣기) · <b>WAV</b>(44.1kHz 16bit) · <b>VOX</b>(8kHz, 전화설비용) 3종이 함께 만들어집니다.
+    BGM 업로드는 mp3/wav 등 저작권 무료 음원 파일을 올려 팀 전체가 쓸 수 있게 합니다.</p>
     <div class="row">
       <button id="previewBtn">📋 끊어읽기 대본 미리보기</button>
       <button id="renderBtn" class="primary">🔊 음원 생성</button>
@@ -256,11 +284,47 @@ function renderEditor() {
   $('#del').onclick = deleteMent;
   $('#previewBtn').onclick = showPreview;
   $('#renderBtn').onclick = startRender;
+  $('#bgmUpload').onclick = uploadBgm;
+  $('#engine').onchange = () => {
+    $('#voiceSlot').innerHTML = voiceControlHtml($('#engine').value, '');
+    updateEngineHint();
+  };
+  updateEngineHint();
+}
+
+function updateEngineHint() {
+  const eng = engineById($('#engine').value);
+  $('#engineHint').textContent = !eng.available ? ('⚠ ' + (eng.hint || 'API 키가 필요한 엔진입니다.')) : (eng.hint ? '' : '');
+}
+
+async function uploadBgm() {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.mp3,.wav,.ogg,.flac,.m4a';
+  input.onchange = async () => {
+    const file = input.files[0];
+    if (!file) return;
+    if (file.size > 30*1024*1024) { alert('최대 30MB까지 업로드할 수 있습니다.'); return; }
+    const res = await fetch('/api/bgm/upload?name=' + encodeURIComponent(file.name), {
+      method: 'POST', body: file,
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      alert(data.detail || '업로드에 실패했습니다.'); return;
+    }
+    const {name} = await res.json();
+    state.meta = await api('/api/meta');            // 목록 갱신
+    const bgmSel = $('#bgm');
+    bgmSel.outerHTML = bgmOptionsHtml('file:' + name);
+    alert('업로드 완료: ' + name + '\n배경음악 목록에서 선택되었습니다.');
+  };
+  input.click();
 }
 
 function collectOptions() {
   return {
-    voice: $('#voice').value, bgm: $('#bgm').value, phrasing: $('#phrasing').value,
+    engine: $('#engine').value, voice: $('#voice').value,
+    bgm: $('#bgm').value, phrasing: $('#phrasing').value,
     bgm_gain_db: parseFloat($('#gain').value) || -16, telephone: $('#tel').checked,
   };
 }
@@ -290,6 +354,11 @@ async function showPreview() {
 // ── 렌더링 ───────────────────────────────────────────────
 
 async function startRender() {
+  const eng = engineById($('#engine').value);
+  if (!eng.available) {
+    alert('선택한 엔진은 아직 사용할 수 없습니다.\n' + (eng.hint || 'API 키를 설정해 주세요.'));
+    return;
+  }
   await saveMent(true);
   try {
     await api(`/api/ments/${state.mentId}/render`, {method:'POST'});

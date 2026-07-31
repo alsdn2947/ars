@@ -11,7 +11,8 @@ from ars_voice.script import PauseProfile, Script, build_script
 
 @dataclass
 class RenderOptions:
-    voice: str = "female_calm"          # tts.VOICE_PRESETS 키
+    engine: str = "edge"                # "edge" | "clova" | "elevenlabs"
+    voice: str = "female_calm"          # 엔진별 음성 식별자
     bgm: str | None = "calm"            # bgm.BGM_PRESETS 키, 파일 경로, 또는 None
     bgm_gain_db: float = -16.0          # 음성 대비 BGM 레벨
     bgm_seed: int = 20260730
@@ -44,9 +45,9 @@ def render_master(text: str, options: RenderOptions | None = None, engine=None):
         raise ValueError("합성할 문장이 없습니다.")
 
     if engine is None:
-        from ars_voice.tts import EdgeTTS
+        from ars_voice.engines import create_engine
 
-        engine = EdgeTTS(options.voice)
+        engine = create_engine(options.engine, options.voice)
 
     segment_audio = engine.synthesize(script)
     voice_track = mixer.build_voice_track(script, segment_audio)

@@ -11,7 +11,6 @@ from pydantic import BaseModel, Field
 
 from ars_voice.bgm import BGM_PRESETS
 from ars_voice.pipeline import RenderOptions, make_script
-from ars_voice.tts import VOICE_PRESETS
 from ars_voice.web import db, renderer
 
 _STATIC = Path(__file__).parent / "static"
@@ -52,7 +51,9 @@ def create_app(data_dir: str | Path = "data") -> FastAPI:
     data_dir = Path(data_dir)
     db_path = str(data_dir / "ars.db")
     renders_dir = str(data_dir / "renders")
+    bgm_dir = str(data_dir / "bgm")
     db.init_db(db_path)
+    Path(bgm_dir).mkdir(parents=True, exist_ok=True)
 
     app = FastAPI(title="ars-voice web", docs_url=None, redoc_url=None)
     app.state.db_path = db_path
@@ -140,11 +141,58 @@ def create_app(data_dir: str | Path = "data") -> FastAPI:
 
     @app.get("/api/meta")
     def meta(user=Depends(current_user)):
+        from ars_voice.engines import engine_catalog
+
         return {
-            "voices": sorted(VOICE_PRESETS),
+            "engines": engine_catalog(),
             "bgms": sorted(BGM_PRESETS) + ["none"],
+            "bgm_files": _list_bgm_files(),
             "output_set": renderer.OUTPUT_SET,
         }
+
+    # ── BGM 보관함 (저작권 무료 음원 업로드) ────────────────
+
+    _BGM_EXTS = {".mp3", ".wav", ".ogg", ".flac", ".m4a"}
+    _BGM_MAX_BYTES = 30 * 1024 * 1024
+
+    def _list_bgm_files() -> list[dict]:
+        out = []
+        for p in sorted(Path(bgm_dir).iterdir()):
+            if p.is_file() and p.suffix.lower() in _BGM_EXTS:
+                out.append({"name": p.name, "size": p.stat().st_size})
+        return out
+
+    def _safe_bgm_name(name: str) -> str:
+        name = Path(name).name.strip()
+        if not name or name.startswith("."):
+            raise HTTPException(400, "잘못된 파일 이름입니다.")
+        if Path(name).suffix.lower() not in _BGM_EXTS:
+            raise HTTPException(400, f"허용되지 않는 형식입니다. ({', '.join(sorted(_BGM_EXTS))})")
+        return name
+
+    @app.get("/api/bgm")
+    def bgm_list(user=Depends(current_user)):
+        return _list_bgm_files()
+
+    @app.post("/api/bgm/upload")
+    async def bgm_upload(request: Request, name: str, user=Depends(current_user)):
+        safe = _safe_bgm_name(name)
+        body = await request.body()
+        if not body:
+            raise HTTPException(400, "파일 내용이 비어 있습니다.")
+        if len(body) > _BGM_MAX_BYTES:
+            raise HTTPException(413, "파일이 너무 큽니다 (최대 30MB).")
+        (Path(bgm_dir) / safe).write_bytes(body)
+        return {"ok": True, "name": safe}
+
+    @app.delete("/api/bgm/{name}")
+    def bgm_delete(name: str, user=Depends(require_admin)):
+        safe = _safe_bgm_name(name)
+        path = Path(bgm_dir) / safe
+        if not path.exists():
+            raise HTTPException(404, "파일이 없습니다.")
+        path.unlink()
+        return {"ok": True}
 
     # ── 프로젝트 ────────────────────────────────────────────
 
@@ -229,7 +277,7 @@ def create_app(data_dir: str | Path = "data") -> FastAPI:
         if not ment["body"].strip():
             raise HTTPException(400, "멘트 내용이 비어 있습니다.")
         render_id = db.create_render(db_path, ment["id"], user["name"])
-        renderer.submit(db_path, renders_dir, render_id)
+        renderer.submit(db_path, renders_dir, render_id, bgm_dir)
         return {"render_id": render_id}
 
     def _render_dict(row) -> dict:
