@@ -104,3 +104,48 @@ def test_elevenlabs_payload(monkeypatch):
 def test_unknown_engine():
     with pytest.raises(ValueError):
         engines.create_engine("papago", "x")
+
+
+def test_elevenlabs_voice_dropdown(monkeypatch):
+    monkeypatch.setenv("ELEVENLABS_API_KEY", "key")
+    monkeypatch.setitem(engines._ELEVEN_VOICE_CACHE, "voices", None)
+    monkeypatch.setitem(engines._ELEVEN_VOICE_CACHE, "ts", 0.0)
+    monkeypatch.setattr(
+        engines, "_fetch_elevenlabs_voices",
+        lambda: {"vid1": "안나 (premade)", "vid2": "민준 (cloned)"},
+    )
+    entry = {e["id"]: e for e in engines.engine_catalog()}["elevenlabs"]
+    assert entry["available"] is True
+    assert entry["voices"] == ["vid1", "vid2"]
+    assert entry["voice_labels"]["vid1"] == "안나 (premade)"
+    assert entry["default_voice"] == "vid1"
+
+    # 두 번째 호출은 캐시 사용 (fetch가 실패해도 목록 유지)
+    def boom():
+        raise RuntimeError("network down")
+    monkeypatch.setattr(engines, "_fetch_elevenlabs_voices", boom)
+    entry2 = {e["id"]: e for e in engines.engine_catalog()}["elevenlabs"]
+    assert entry2["voices"] == ["vid1", "vid2"]
+
+
+def test_elevenlabs_fallback_to_text_input(monkeypatch):
+    monkeypatch.setenv("ELEVENLABS_API_KEY", "key")
+    monkeypatch.setitem(engines._ELEVEN_VOICE_CACHE, "voices", None)
+    monkeypatch.setitem(engines._ELEVEN_VOICE_CACHE, "ts", 0.0)
+
+    def boom():
+        raise RuntimeError("network down")
+    monkeypatch.setattr(engines, "_fetch_elevenlabs_voices", boom)
+    entry = {e["id"]: e for e in engines.engine_catalog()}["elevenlabs"]
+    assert entry["available"] is True
+    assert entry["voices"] is None  # 직접 입력 폴백
+
+
+def test_elevenlabs_no_key_no_fetch(monkeypatch):
+    _clear_keys(monkeypatch)
+    monkeypatch.setitem(engines._ELEVEN_VOICE_CACHE, "voices", None)
+    called = []
+    monkeypatch.setattr(engines, "_fetch_elevenlabs_voices", lambda: called.append(1))
+    entry = {e["id"]: e for e in engines.engine_catalog()}["elevenlabs"]
+    assert entry["available"] is False
+    assert not called  # 키가 없으면 API를 호출하지 않는다

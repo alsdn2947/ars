@@ -27,6 +27,7 @@ import base64
 import io
 import json
 import os
+import time
 import urllib.parse
 import urllib.request
 
@@ -263,12 +264,69 @@ def elevenlabs_available() -> bool:
     return bool(os.environ.get("ELEVENLABS_API_KEY"))
 
 
+_ELEVEN_VOICE_CACHE: dict = {"ts": 0.0, "voices": None}
+_ELEVEN_CACHE_TTL = 600  # 10분
+
+
+def _fetch_elevenlabs_voices() -> dict[str, str]:
+    """계정의 보이스 목록을 API에서 가져온다. {voice_id: 표시 이름}."""
+    req = urllib.request.Request(
+        "https://api.elevenlabs.io/v1/voices",
+        headers={"xi-api-key": os.environ.get("ELEVENLABS_API_KEY", "")},
+    )
+    data = json.loads(_http_bytes(req, "ElevenLabs"))
+    voices: dict[str, str] = {}
+    for v in data.get("voices", []):
+        vid, name = v.get("voice_id"), v.get("name") or v.get("voice_id")
+        if not vid:
+            continue
+        category = v.get("category") or ""
+        voices[vid] = f"{name} ({category})" if category else name
+    return voices
+
+
+def elevenlabs_voice_catalog() -> dict[str, str] | None:
+    """보이스 목록 (10분 캐시). 키가 없거나 조회 실패 시 None → 직접 입력 폴백."""
+    if not elevenlabs_available():
+        return None
+    now = time.time()
+    if _ELEVEN_VOICE_CACHE["voices"] is not None and now - _ELEVEN_VOICE_CACHE["ts"] < _ELEVEN_CACHE_TTL:
+        return _ELEVEN_VOICE_CACHE["voices"]
+    try:
+        voices = _fetch_elevenlabs_voices()
+    except Exception:
+        return _ELEVEN_VOICE_CACHE["voices"]  # 이전 캐시라도 있으면 사용
+    if voices:
+        _ELEVEN_VOICE_CACHE.update(ts=now, voices=voices)
+        return voices
+    return None
+
+
 def google_available() -> bool:
     return bool(os.environ.get("GOOGLE_TTS_API_KEY"))
 
 
 def openai_available() -> bool:
     return bool(os.environ.get("OPENAI_API_KEY"))
+
+
+def _elevenlabs_catalog_entry() -> dict:
+    entry = {
+        "id": "elevenlabs",
+        "label": "ElevenLabs — 최고 자연스러움 (API 키 필요)",
+        "available": elevenlabs_available(),
+        "voices": None,  # 목록 조회 실패 시 voice_id 직접 입력 폴백
+        "default_voice": "",
+        "hint": "서버 환경 변수 ELEVENLABS_API_KEY 설정 시 활성화. "
+                "elevenlabs.io Voice Library에서 '한국어' 보이스를 My Voices에 추가하면 목록에 나타납니다.",
+    }
+    voices = elevenlabs_voice_catalog()
+    if voices:
+        entry["voices"] = list(voices)
+        entry["voice_labels"] = voices
+        entry["default_voice"] = next(iter(voices))
+        entry["hint"] = "보이스 목록은 ElevenLabs 계정의 My Voices에서 가져옵니다."
+    return entry
 
 
 def engine_catalog() -> list[dict]:
@@ -309,14 +367,7 @@ def engine_catalog() -> list[dict]:
             "default_voice": "nara",
             "hint": "서버 환경 변수 CLOVA_CLIENT_ID / CLOVA_CLIENT_SECRET 설정 시 활성화",
         },
-        {
-            "id": "elevenlabs",
-            "label": "ElevenLabs (API 키 필요)",
-            "available": elevenlabs_available(),
-            "voices": None,  # voice_id 직접 입력
-            "default_voice": "",
-            "hint": "서버 환경 변수 ELEVENLABS_API_KEY 설정 시 활성화, voice_id 직접 입력",
-        },
+        _elevenlabs_catalog_entry(),
     ]
 
 
