@@ -14,7 +14,8 @@ from pydub import AudioSegment
 
 from ars_voice.script import Script
 
-VOICE_TARGET_DBFS = -16.0  # 음성 RMS 목표 레벨
+# 음성 RMS 목표 레벨. 실제 ARS 성우 녹음(평균 -14.5dB) 실측에 맞춘 값.
+VOICE_TARGET_DBFS = -14.0
 
 
 def build_voice_track(script: Script, segment_audio: list[AudioSegment]) -> AudioSegment:
@@ -25,6 +26,8 @@ def build_voice_track(script: Script, segment_audio: list[AudioSegment]) -> Audi
     frame_rate = segment_audio[0].frame_rate if segment_audio else 44100
     track = AudioSegment.silent(duration=script.profile.lead_in_ms, frame_rate=frame_rate)
     for seg, audio in zip(script.segments, segment_audio):
+        # 세그먼트 경계의 미세한 클릭(파형 불연속) 제거
+        audio = audio.fade_in(10).fade_out(15)
         track += audio + AudioSegment.silent(duration=seg.pause_ms, frame_rate=frame_rate)
     return track
 
@@ -68,8 +71,17 @@ def telephone_filter(audio: AudioSegment) -> AudioSegment:
 
 
 def export(audio: AudioSegment, path: str, bitrate: str = "192k") -> str:
-    """확장자에 맞는 포맷으로 저장한다 (mp3/wav/ogg/flac 등)."""
+    """확장자에 맞는 포맷으로 저장한다 (mp3/wav/ogg/flac/vox).
+
+    .vox는 전화설비용 Dialogic OKI ADPCM(8kHz 모노) raw 포맷으로 저장된다.
+    """
     fmt = path.rsplit(".", 1)[-1].lower() if "." in path else "mp3"
+    if fmt == "vox":
+        from ars_voice.vox import audio_to_vox
+
+        with open(path, "wb") as fp:
+            fp.write(audio_to_vox(audio))
+        return path
     kwargs = {"bitrate": bitrate} if fmt == "mp3" else {}
     audio.export(path, format=fmt, **kwargs)
     return path

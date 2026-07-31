@@ -222,6 +222,7 @@ function renderEditor() {
   const voiceLabels = {female_calm:'차분한 여성 (기본)', female_bright:'밝은 여성',
                        male_calm:'차분한 남성', male_deep:'저음 남성', multilingual:'다국어'};
   const bgmLabels = {calm:'잔잔한 BGM (기본)', bright:'밝은 BGM', none:'BGM 없음'};
+  const phrasingLabels = {natural:'자연스럽게 (기본)', precise:'구절 단위 정밀 제어'};
   $('#editor').innerHTML = `
     <div class="row" style="justify-content:space-between">
       <input type="text" id="title" value="${esc(m.title)}" style="max-width:420px;font-weight:600">
@@ -236,12 +237,13 @@ function renderEditor() {
     <p class="hint">숫자·전화번호·시각·영문은 자동으로 성우 발음으로 변환됩니다. (예: 1588-1234 → 일오팔팔, 일이삼사)</p>
     <div class="row">
       <label>성우 ${optSelect('voice', state.meta.voices, o.voice || 'female_calm', voiceLabels)}</label>
+      <label>끊어읽기 ${optSelect('phrasing', ['natural','precise'], o.phrasing || 'natural', phrasingLabels)}</label>
       <label>배경음악 ${optSelect('bgm', state.meta.bgms, o.bgm || 'calm', bgmLabels)}</label>
-      <label>출력 형식 ${optSelect('format', state.meta.formats, o.format || 'mp3')}</label>
       <label>BGM 음량(dB) <input type="text" id="gain" value="${o.bgm_gain_db ?? -16}" style="width:70px"></label>
       <label style="flex-direction:row;align-items:center;gap:.4rem">
         <input type="checkbox" id="tel" ${o.telephone?'checked':''}> 전화망 음질</label>
     </div>
+    <p class="hint">음원 생성 시 <b>MP3</b>(미리듣기) · <b>WAV</b>(44.1kHz 16bit) · <b>VOX</b>(8kHz, 전화설비용) 3종이 함께 만들어집니다.</p>
     <div class="row">
       <button id="previewBtn">📋 끊어읽기 대본 미리보기</button>
       <button id="renderBtn" class="primary">🔊 음원 생성</button>
@@ -258,7 +260,7 @@ function renderEditor() {
 
 function collectOptions() {
   return {
-    voice: $('#voice').value, bgm: $('#bgm').value, format: $('#format').value,
+    voice: $('#voice').value, bgm: $('#bgm').value, phrasing: $('#phrasing').value,
     bgm_gain_db: parseFloat($('#gain').value) || -16, telephone: $('#tel').checked,
   };
 }
@@ -278,7 +280,8 @@ async function deleteMent() {
 }
 
 async function showPreview() {
-  const r = await api('/api/preview', {method:'POST', body:{body: $('#body').value}});
+  const r = await api('/api/preview', {method:'POST',
+    body:{body: $('#body').value, phrasing: $('#phrasing').value}});
   $('#previewBox').innerHTML = `<div class="preview">` + (r.segments.map(s =>
     `<div class="seg"><span>${esc(s.text)}</span><span class="pause">쉼 ${(s.pause_ms/1000).toFixed(2)}초</span></div>`
   ).join('') || '<span class="empty">내용이 없습니다.</span>') + '</div>';
@@ -298,14 +301,17 @@ async function loadRenders() {
   if (!state.mentId) return;
   state.renders = await api(`/api/ments/${state.mentId}/renders`);
   const labels = {queued:'대기 중', running:'생성 중', done:'완료', error:'실패'};
-  $('#renderList').innerHTML = state.renders.map(r => `
+  $('#renderList').innerHTML = state.renders.map(r => {
+    const fmts = (r.files || []).map(f => f.split('.').pop().toUpperCase());
+    return `
     <div class="render-row">
       <span class="badge ${r.status}">${labels[r.status]||r.status}</span>
       <span style="color:var(--mut)">#${r.id} · ${esc(r.requested_by)} · ${r.created_at.replace('T',' ').slice(0,16)}</span>
-      ${r.status==='done' ? `<audio controls preload="none" src="/api/renders/${r.id}/download"></audio>
-        <a href="/api/renders/${r.id}/download" download><button class="small">다운로드</button></a>` : ''}
+      ${r.status==='done' ? `<audio controls preload="none" src="/api/renders/${r.id}/download?fmt=mp3"></audio>
+        ${fmts.map(f => `<a href="/api/renders/${r.id}/download?fmt=${f.toLowerCase()}" download><button class="small">${f}</button></a>`).join('')}` : ''}
       ${r.status==='error' ? `<span style="color:#b3352c">${esc(r.error||'')}</span>` : ''}
-    </div>`).join('') || '<p class="empty">아직 생성한 음원이 없습니다.</p>';
+    </div>`;
+  }).join('') || '<p class="empty">아직 생성한 음원이 없습니다.</p>';
 
   clearTimeout(state.pollTimer);
   if (state.renders.some(r => r.status === 'queued' || r.status === 'running')) {

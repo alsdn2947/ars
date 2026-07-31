@@ -45,6 +45,7 @@ class PreviewBody(BaseModel):
     body: str = Field(max_length=20000)
     auto_phrase: bool = True
     normalize_text: bool = True
+    phrasing: str = "natural"
 
 
 def create_app(data_dir: str | Path = "data") -> FastAPI:
@@ -142,7 +143,7 @@ def create_app(data_dir: str | Path = "data") -> FastAPI:
         return {
             "voices": sorted(VOICE_PRESETS),
             "bgms": sorted(BGM_PRESETS) + ["none"],
-            "formats": sorted(renderer.ALLOWED_FORMATS),
+            "output_set": renderer.OUTPUT_SET,
         }
 
     # ── 프로젝트 ────────────────────────────────────────────
@@ -207,9 +208,14 @@ def create_app(data_dir: str | Path = "data") -> FastAPI:
 
     @app.post("/api/preview")
     def preview(body: PreviewBody, user=Depends(current_user)):
+        phrasing = body.phrasing if body.phrasing in ("natural", "precise") else "natural"
         script = make_script(
             body.body,
-            RenderOptions(auto_phrase=body.auto_phrase, normalize_text=body.normalize_text),
+            RenderOptions(
+                auto_phrase=body.auto_phrase,
+                normalize_text=body.normalize_text,
+                phrasing=phrasing,
+            ),
         )
         return {
             "segments": [{"text": s.text, "pause_ms": s.pause_ms} for s in script.segments]
@@ -226,10 +232,19 @@ def create_app(data_dir: str | Path = "data") -> FastAPI:
         renderer.submit(db_path, renders_dir, render_id)
         return {"render_id": render_id}
 
+    def _render_dict(row) -> dict:
+        out = dict(row)
+        raw = out.pop("file_name", None)
+        try:
+            out["files"] = json.loads(raw) if raw else []
+        except ValueError:
+            out["files"] = [raw] if raw else []
+        return out
+
     @app.get("/api/ments/{ment_id}/renders")
     def ment_renders(ctx=Depends(require_ment)):
         ment, _ = ctx
-        return [dict(r) for r in db.list_renders(db_path, ment["id"])]
+        return [_render_dict(r) for r in db.list_renders(db_path, ment["id"])]
 
     def _authorized_render(render_id: int, user):
         row = db.get_render(db_path, render_id)
@@ -242,16 +257,25 @@ def create_app(data_dir: str | Path = "data") -> FastAPI:
 
     @app.get("/api/renders/{render_id}")
     def render_status(render_id: int, user=Depends(current_user)):
-        return dict(_authorized_render(render_id, user))
+        return _render_dict(_authorized_render(render_id, user))
 
     @app.get("/api/renders/{render_id}/download")
-    def render_download(render_id: int, user=Depends(current_user)):
+    def render_download(render_id: int, fmt: str | None = None, user=Depends(current_user)):
         row = _authorized_render(render_id, user)
-        if row["status"] != "done" or not row["file_name"]:
+        files = _render_dict(row)["files"]
+        if row["status"] != "done" or not files:
             raise HTTPException(409, "아직 완료되지 않은 렌더링입니다.")
-        path = Path(renders_dir) / row["file_name"]
+        if fmt:
+            matches = [f for f in files if f.endswith("." + fmt.lower())]
+            if not matches:
+                raise HTTPException(404, f"{fmt} 형식 파일이 없습니다.")
+            name = matches[0]
+        else:
+            name = files[0]
+        path = Path(renders_dir) / name
         if not path.exists():
             raise HTTPException(410, "음원 파일이 삭제되었습니다.")
-        return FileResponse(path, filename=row["file_name"])
+        media_type = "application/octet-stream" if name.endswith(".vox") else None
+        return FileResponse(path, filename=name, media_type=media_type)
 
     return app

@@ -11,11 +11,23 @@ def test_sentence_split_and_pauses():
     assert script.segments[1].pause_ms == profile.tail_ms
 
 
-def test_comma_split():
+def test_comma_split_precise():
     profile = PauseProfile()
-    script = build_script("첫째, 둘째, 셋째입니다.", profile=profile, auto_phrase=False)
+    script = build_script("첫째, 둘째, 셋째입니다.", profile=profile, auto_phrase=False, phrasing="precise")
     assert [s.text for s in script.segments] == ["첫째", "둘째", "셋째입니다."]
     assert script.segments[0].pause_ms == profile.comma_ms
+
+
+def test_natural_mode_keeps_sentence_whole():
+    """natural 모드: 쉼표는 분할하지 않고 문장 전체를 한 세그먼트로 유지."""
+    script = build_script("첫째, 둘째, 셋째입니다. 감사합니다.", auto_phrase=True, phrasing="natural")
+    assert [s.text for s in script.segments] == ["첫째, 둘째, 셋째입니다.", "감사합니다."]
+
+
+def test_natural_mode_honors_manual_marks():
+    profile = PauseProfile()
+    script = build_script("안내를 시작합니다. // 잠시만요.", phrasing="natural", profile=profile)
+    assert script.segments[0].pause_ms == profile.long_ms
 
 
 def test_manual_pause_marks():
@@ -26,8 +38,8 @@ def test_manual_pause_marks():
     assert script.segments[0].pause_ms == profile.long_ms
 
 
-def test_auto_phrase_inserts_pause():
-    script = build_script("상담을 원하시면 0번을 눌러 주세요.", auto_phrase=True)
+def test_auto_phrase_inserts_pause_precise():
+    script = build_script("상담을 원하시면 0번을 눌러 주세요.", auto_phrase=True, phrasing="precise")
     texts = [s.text for s in script.segments]
     assert texts[0].endswith("원하시면")
     assert len(texts) == 2

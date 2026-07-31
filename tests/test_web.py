@@ -144,10 +144,15 @@ def test_ment_crud_preview_render_download(env):
         time.sleep(0.1)
     assert status["status"] == "done", status.get("error")
 
-    # 다운로드
-    audio = client.get(f"/api/renders/{render_id}/download")
-    assert audio.status_code == 200
-    assert len(audio.content) > 1000
+    # 3종 세트(mp3/wav/vox)가 모두 생성된다
+    assert sorted(f.split(".")[-1] for f in status["files"]) == ["mp3", "vox", "wav"]
+
+    # 형식별 다운로드
+    for fmt in ("mp3", "wav", "vox"):
+        res = client.get(f"/api/renders/{render_id}/download?fmt={fmt}")
+        assert res.status_code == 200, fmt
+        assert len(res.content) > 500, fmt
+    assert client.get(f"/api/renders/{render_id}/download?fmt=ogg").status_code == 404
 
     # 이력
     renders = client.get(f"/api/ments/{ment['id']}/renders").json()

@@ -80,9 +80,20 @@ def build_script(
     profile: PauseProfile | None = None,
     auto_phrase: bool = True,
     apply_normalize: bool = True,
+    phrasing: str = "natural",
 ) -> Script:
-    """자연어 텍스트를 낭독 세그먼트 목록으로 변환한다."""
+    """자연어 텍스트를 낭독 세그먼트 목록으로 변환한다.
+
+    phrasing:
+    - "natural" (기본): 문장 단위로만 나눠 합성한다. 문장 안의 쉼표 억양은
+      TTS 엔진이 자연스럽게 처리하고, 우리는 문장 사이 쉼과 수동 표기
+      (`/`, `//`)만 제어한다. 구절별 합성에서 생기는 뚝뚝 끊기는 느낌이 없다.
+    - "precise": 쉼표·구절 경계까지 모두 분할해 쉼 길이를 정밀 제어한다.
+      (엔진 억양은 다소 딱딱해질 수 있다)
+    """
     profile = profile or PauseProfile()
+    if phrasing not in ("natural", "precise"):
+        raise ValueError(f"알 수 없는 phrasing 모드: {phrasing}")
 
     # 수동 쉼 표기를 마커로 치환 (긴 것 먼저)
     text = text.replace("//", _LONG_MARK).replace("/", _SHORT_MARK)
@@ -105,11 +116,15 @@ def build_script(
             sentences.append((body + punct).strip())
 
     for sentence in sentences:
-        if auto_phrase:
+        if phrasing == "precise" and auto_phrase:
             sentence = _apply_auto_phrase(sentence)
 
-        # 문장 내부를 쉼표·마커 기준으로 분할
-        tokens = re.split(rf"(,|{_LONG_MARK}|{_SHORT_MARK})", sentence)
+        # natural: 수동 마커에서만 분할 (쉼표는 엔진이 처리)
+        # precise: 쉼표·마커 모두에서 분할
+        if phrasing == "natural":
+            tokens = re.split(rf"({_LONG_MARK}|{_SHORT_MARK})", sentence)
+        else:
+            tokens = re.split(rf"(,|{_LONG_MARK}|{_SHORT_MARK})", sentence)
         pending = ""
         for token in tokens:
             if token in (",", _SHORT_MARK):

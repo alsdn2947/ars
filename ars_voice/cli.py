@@ -38,6 +38,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--bgm-gain", type=float, default=-16.0, help="음성 대비 BGM 레벨 dB (기본: -16)")
     p.add_argument("--bgm-seed", type=int, default=20260730, help="절차 생성 BGM 시드")
     p.add_argument("--telephone", action="store_true", help="전화망(300~3400Hz) 음질 시뮬레이션")
+    p.add_argument(
+        "--phrasing", choices=["natural", "precise"], default="natural",
+        help="끊어읽기 방식: natural=문장 단위(자연스러움, 기본), precise=구절 단위 정밀 제어",
+    )
     p.add_argument("--no-auto-phrase", action="store_true", help="자동 구절 분할 끄기")
     p.add_argument("--no-normalize", action="store_true", help="발음 정규화(숫자/영문→한글) 끄기")
     p.add_argument("--dry-run", action="store_true", help="합성하지 않고 낭독 대본만 출력")
@@ -66,6 +70,7 @@ def main(argv: list[str] | None = None) -> int:
         telephone=args.telephone,
         auto_phrase=not args.no_auto_phrase,
         normalize_text=not args.no_normalize,
+        phrasing=args.phrasing,
     )
 
     if args.dry_run:
