@@ -19,10 +19,10 @@ from ars_voice.web import db
 _EXECUTOR = ThreadPoolExecutor(max_workers=2, thread_name_prefix="ars-render")
 
 
-def _default_engine_factory(engine_id: str, voice: str):
+def _default_engine_factory(engine_id: str, voice: str, speed: float = 1.0):
     from ars_voice.engines import create_engine
 
-    return create_engine(engine_id, voice)
+    return create_engine(engine_id, voice, speed)
 
 
 ENGINE_FACTORY = _default_engine_factory
@@ -40,9 +40,14 @@ def options_from_json(raw: str) -> RenderOptions:
     phrasing = data.get("phrasing", "flow")
     if phrasing not in ("flow", "natural", "precise"):
         phrasing = "flow"
+    try:
+        speed = float(data.get("speed", 1.0))
+    except (TypeError, ValueError):
+        speed = 1.0
     return RenderOptions(
         engine=data.get("engine", "edge"),
         voice=data.get("voice", "female_calm"),
+        speed=min(1.3, max(0.7, speed)),
         bgm=None if bgm in (None, "", "none") else bgm,
         bgm_gain_db=float(data.get("bgm_gain_db", -16.0)),
         telephone=bool(data.get("telephone", False)),
@@ -91,7 +96,7 @@ def _run(db_path: str, renders_dir: str, render_id: int, bgm_dir: str) -> None:
         Path(renders_dir).mkdir(parents=True, exist_ok=True)
         from ars_voice.pipeline import render_set
 
-        engine = ENGINE_FACTORY(options.engine, options.voice)
+        engine = ENGINE_FACTORY(options.engine, options.voice, options.speed)
         names = render_set(
             ment["body"], renders_dir, f"render_{render_id}",
             OUTPUT_SET, options, engine=engine,

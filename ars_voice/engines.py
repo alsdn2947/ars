@@ -71,8 +71,9 @@ class ClovaTTS:
     """Naver Cloud CLOVA Voice Premium. 한국어 전문 성우급 화자."""
 
     ENDPOINT = "https://naveropenapi.apigw.ntruss.com/tts-premium/v1/tts"
+    native_speed = True
 
-    def __init__(self, voice: str = "nara", speed: int = 1):
+    def __init__(self, voice: str = "nara", speed: float = 1.0):
         self.client_id = os.environ.get("CLOVA_CLIENT_ID", "")
         self.client_secret = os.environ.get("CLOVA_CLIENT_SECRET", "")
         if not self.client_id or not self.client_secret:
@@ -80,7 +81,9 @@ class ClovaTTS:
                 "CLOVA_CLIENT_ID / CLOVA_CLIENT_SECRET 환경 변수가 필요합니다."
             )
         self.voice = voice if voice in CLOVA_SPEAKERS else "nara"
-        self.speed = speed  # -5(빠름) ~ 5(느림), 안내 방송은 1 권장
+        # 배율(0.7~1.3)을 CLOVA 정수 스케일(-5 빠름 ~ 5 느림)로 변환.
+        # 기본 1.0배는 안내 방송 권장값인 '살짝 느림(1)'에 대응한다.
+        self.speed = min(5, max(-5, 1 + round((1.0 - speed) * 10)))
 
     def _payload(self, text: str) -> bytes:
         return urllib.parse.urlencode(
@@ -109,8 +112,9 @@ class ElevenLabsTTS:
     """ElevenLabs 다국어 신경망 음성. voice_id는 계정의 보이스 라이브러리에서 선택."""
 
     ENDPOINT = "https://api.elevenlabs.io/v1/text-to-speech/{voice_id}?output_format=mp3_44100_128"
+    native_speed = False  # 모델별 지원이 갈려 후처리로 통일
 
-    def __init__(self, voice: str):
+    def __init__(self, voice: str, speed: float = 1.0):
         self.api_key = os.environ.get("ELEVENLABS_API_KEY", "")
         if not self.api_key:
             raise MissingAPIKey("ELEVENLABS_API_KEY 환경 변수가 필요합니다.")
@@ -161,17 +165,20 @@ class GoogleTTS:
 
     ENDPOINT = "https://texttospeech.googleapis.com/v1/text:synthesize"
 
-    def __init__(self, voice: str = "ko-KR-Chirp3-HD-Aoede"):
+    def __init__(self, voice: str = "ko-KR-Chirp3-HD-Aoede", speed: float = 1.0):
         self.api_key = os.environ.get("GOOGLE_TTS_API_KEY", "")
         if not self.api_key:
             raise MissingAPIKey("GOOGLE_TTS_API_KEY 환경 변수가 필요합니다.")
         self.voice = voice if voice in GOOGLE_VOICES else "ko-KR-Chirp3-HD-Aoede"
+        self.speed = speed
+        # Chirp3 HD는 speakingRate를 지원하지 않으므로 후처리로 조절한다
+        self.native_speed = "Chirp3" not in self.voice
 
     def _payload(self, text: str) -> bytes:
         audio_config: dict = {"audioEncoding": "MP3"}
-        # Chirp3 HD는 speakingRate 등 세부 파라미터를 지원하지 않는다
-        if "Chirp3" not in self.voice:
-            audio_config["speakingRate"] = 0.93  # 안내 방송 톤: 살짝 느리게
+        if self.native_speed:
+            # 안내 방송 톤 기본(0.93)에 사용자 속도 배율 합성
+            audio_config["speakingRate"] = round(min(max(0.93 * self.speed, 0.25), 4.0), 3)
         return json.dumps(
             {
                 "input": {"text": text},
@@ -218,8 +225,9 @@ class OpenAITTS:
     """OpenAI TTS (gpt-4o-mini-tts). 구독료 없는 종량제, 톤 지시 지원."""
 
     ENDPOINT = "https://api.openai.com/v1/audio/speech"
+    native_speed = False  # gpt-4o-mini-tts는 speed 파라미터 미지원 → 후처리
 
-    def __init__(self, voice: str = "shimmer"):
+    def __init__(self, voice: str = "shimmer", speed: float = 1.0):
         self.api_key = os.environ.get("OPENAI_API_KEY", "")
         if not self.api_key:
             raise MissingAPIKey("OPENAI_API_KEY 환경 변수가 필요합니다.")
@@ -371,15 +379,16 @@ def engine_catalog() -> list[dict]:
     ]
 
 
-def create_engine(engine_id: str, voice: str):
+def create_engine(engine_id: str, voice: str, speed: float = 1.0):
+    speed = min(1.3, max(0.7, speed))
     if engine_id == "edge" or not engine_id:
-        return EdgeTTS(voice if voice in VOICE_PRESETS else DEFAULT_PRESET)
+        return EdgeTTS(voice if voice in VOICE_PRESETS else DEFAULT_PRESET, speed=speed)
     if engine_id == "google":
-        return GoogleTTS(voice)
+        return GoogleTTS(voice, speed=speed)
     if engine_id == "openai":
-        return OpenAITTS(voice)
+        return OpenAITTS(voice, speed=speed)
     if engine_id == "clova":
-        return ClovaTTS(voice)
+        return ClovaTTS(voice, speed=speed)
     if engine_id == "elevenlabs":
-        return ElevenLabsTTS(voice)
+        return ElevenLabsTTS(voice, speed=speed)
     raise ValueError(f"알 수 없는 엔진: {engine_id}")

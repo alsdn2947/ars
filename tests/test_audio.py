@@ -88,6 +88,29 @@ def test_render_wav_and_telephone(tmp_path):
     assert out.exists()
 
 
+def test_time_stretch_changes_duration():
+    tone = Sine(440).to_audio_segment(duration=2000).apply_gain(-6)
+    slow = mixer.time_stretch(tone, 0.8)
+    fast = mixer.time_stretch(tone, 1.25)
+    assert abs(len(slow) - 2500) < 100  # 0.8배속 → 25% 길어짐
+    assert abs(len(fast) - 1600) < 100  # 1.25배속 → 20% 짧아짐
+    # 1.0배는 원본 그대로
+    assert mixer.time_stretch(tone, 1.0) is tone
+
+
+def test_render_applies_speed_fallback(tmp_path):
+    """native_speed 없는 엔진은 타임스트레치로 속도가 보정된다."""
+    out_slow = tmp_path / "slow.wav"
+    out_norm = tmp_path / "norm.wav"
+    text = "안녕하십니까. 고객센터입니다."
+    render(text, str(out_norm), RenderOptions(bgm=None, speed=1.0), engine=FakeEngine())
+    render(text, str(out_slow), RenderOptions(bgm=None, speed=0.8), engine=FakeEngine())
+    norm = AudioSegment.from_file(out_norm)
+    slow = AudioSegment.from_file(out_slow)
+    # flow 모드 1세그먼트(0.8초) 기준: 0.8배속이면 음성 구간이 약 200ms 늘어난다
+    assert len(slow) > len(norm) + 150  # 쉼 길이는 그대로, 음성만 늘어남
+
+
 def test_render_empty_text_raises(tmp_path):
     with pytest.raises(ValueError):
         render("   ", str(tmp_path / "x.mp3"), engine=FakeEngine())

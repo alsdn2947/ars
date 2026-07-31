@@ -63,10 +63,15 @@ def _segment_synth_text(text: str, is_final: bool) -> str:
 class EdgeTTS:
     """edge-tts 기반 합성기. 네트워크 연결이 필요하다."""
 
-    def __init__(self, preset: VoicePreset | str = DEFAULT_PRESET):
+    native_speed = True  # 속도를 엔진 파라미터로 직접 반영한다
+
+    def __init__(self, preset: VoicePreset | str = DEFAULT_PRESET, speed: float = 1.0):
         if isinstance(preset, str):
             preset = VOICE_PRESETS[preset]
         self.preset = preset
+        # 프리셋 기본 속도에 사용자 속도 배율을 합성 (1.1 → +10%p)
+        base_pct = int(self.preset.rate.rstrip("%"))
+        self.rate = f"{base_pct + round((speed - 1) * 100):+d}%"
 
     def synthesize(self, script: Script) -> list[AudioSegment]:
         return asyncio.run(self._synthesize_async(script))
@@ -82,7 +87,7 @@ class EdgeTTS:
                 communicate = edge_tts.Communicate(
                     text,
                     voice=self.preset.voice,
-                    rate=self.preset.rate,
+                    rate=self.rate,
                     pitch=self.preset.pitch,
                     volume=self.preset.volume,
                 )

@@ -16,6 +16,7 @@ class RenderOptions:
     bgm: str | None = "calm"            # bgm.BGM_PRESETS 키, 파일 경로, 또는 None
     bgm_gain_db: float = -16.0          # 음성 대비 BGM 레벨
     bgm_seed: int = 20260730
+    speed: float = 1.0                  # 말하기 속도 배율 (0.7 느리게 ~ 1.3 빠르게)
     telephone: bool = False             # 전화망 음질 시뮬레이션
     auto_phrase: bool = True            # 자동 구절 분할 (precise 모드에서만)
     normalize_text: bool = True         # 발음 정규화 (숫자/영문 → 한글)
@@ -47,9 +48,16 @@ def render_master(text: str, options: RenderOptions | None = None, engine=None):
     if engine is None:
         from ars_voice.engines import create_engine
 
-        engine = create_engine(options.engine, options.voice)
+        engine = create_engine(options.engine, options.voice, options.speed)
 
     segment_audio = engine.synthesize(script)
+
+    # 엔진이 속도를 자체 처리하지 못하면 음정 유지 타임스트레치로 보정.
+    # (쉼 길이는 그대로 두기 위해 세그먼트 오디오에만 적용)
+    speed = min(1.3, max(0.7, options.speed))
+    if abs(speed - 1.0) >= 0.01 and not getattr(engine, "native_speed", False):
+        segment_audio = [mixer.time_stretch(a, speed) for a in segment_audio]
+
     voice_track = mixer.build_voice_track(script, segment_audio)
 
     bgm_audio = None

@@ -10,6 +10,9 @@
 
 from __future__ import annotations
 
+import io
+import subprocess
+
 from pydub import AudioSegment
 
 from ars_voice.script import Script
@@ -63,6 +66,27 @@ def mix(
     if mixed.max_dBFS > -1.0:
         mixed = mixed.apply_gain(-1.0 - mixed.max_dBFS)
     return mixed
+
+
+def time_stretch(audio: AudioSegment, speed: float) -> AudioSegment:
+    """음정을 유지한 채 재생 속도를 바꾼다 (ffmpeg atempo).
+
+    속도 파라미터를 지원하지 않는 TTS 엔진의 속도 조절 폴백으로 쓴다.
+    """
+    if abs(speed - 1.0) < 0.01:
+        return audio
+    if not 0.5 <= speed <= 2.0:
+        raise ValueError("속도는 0.5~2.0 배 범위만 지원합니다.")
+    src = io.BytesIO()
+    audio.export(src, format="wav")
+    proc = subprocess.run(
+        [AudioSegment.converter, "-v", "error", "-i", "pipe:0",
+         "-filter:a", f"atempo={speed}", "-f", "wav", "pipe:1"],
+        input=src.getvalue(), capture_output=True,
+    )
+    if proc.returncode != 0 or not proc.stdout:
+        raise RuntimeError(f"속도 변환 실패: {proc.stderr[:200].decode('utf-8', 'replace')}")
+    return AudioSegment.from_file(io.BytesIO(proc.stdout), format="wav")
 
 
 def telephone_filter(audio: AudioSegment) -> AudioSegment:

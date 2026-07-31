@@ -101,6 +101,33 @@ def test_elevenlabs_payload(monkeypatch):
         engines.create_engine("elevenlabs", "")
 
 
+def test_edge_speed_combines_with_preset():
+    # female_calm 프리셋 기본 -8% + 속도 1.1 → +2%
+    engine = engines.create_engine("edge", "female_calm", speed=1.1)
+    assert engine.rate == "+2%"
+    assert engines.create_engine("edge", "female_calm", speed=1.0).rate == "-8%"
+    assert engines.create_engine("edge", "female_calm", speed=0.9).rate == "-18%"
+
+
+def test_google_speed_native_and_chirp_fallback(monkeypatch):
+    monkeypatch.setenv("GOOGLE_TTS_API_KEY", "gkey")
+    native = engines.create_engine("google", "ko-KR-Neural2-A", speed=1.1)
+    assert native.native_speed is True
+    data = json.loads(native._payload("x"))
+    assert data["audioConfig"]["speakingRate"] == round(0.93 * 1.1, 3)
+
+    chirp = engines.create_engine("google", "ko-KR-Chirp3-HD-Aoede", speed=1.1)
+    assert chirp.native_speed is False  # 후처리 폴백
+
+
+def test_clova_speed_mapping(monkeypatch):
+    monkeypatch.setenv("CLOVA_CLIENT_ID", "id")
+    monkeypatch.setenv("CLOVA_CLIENT_SECRET", "secret")
+    assert engines.create_engine("clova", "nara", speed=1.0).speed == 1   # 기본: 살짝 느림
+    assert engines.create_engine("clova", "nara", speed=0.8).speed == 3   # 더 느리게
+    assert engines.create_engine("clova", "nara", speed=1.3).speed == -2  # 빠르게
+
+
 def test_unknown_engine():
     with pytest.raises(ValueError):
         engines.create_engine("papago", "x")

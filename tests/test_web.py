@@ -21,7 +21,7 @@ class FakeEngine:
 
 @pytest.fixture()
 def env(tmp_path, monkeypatch):
-    monkeypatch.setattr(renderer, "ENGINE_FACTORY", lambda engine, voice: FakeEngine())
+    monkeypatch.setattr(renderer, "ENGINE_FACTORY", lambda engine, voice, speed=1.0: FakeEngine())
     app = create_app(tmp_path)
     db_path = str(tmp_path / "ars.db")
     admin_token = db.ensure_admin(db_path)
