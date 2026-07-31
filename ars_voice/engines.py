@@ -11,11 +11,19 @@
     ELEVENLABS_API_KEY
     음성은 voice_id를 직접 입력한다 (elevenlabs.io 보이스 라이브러리에서 복사)
 
+  Google Cloud TTS (월 100만 자 무료 티어)
+    GOOGLE_TTS_API_KEY
+    (Google Cloud 콘솔 → Cloud Text-to-Speech API 활성화 → API 키 발급)
+
+  OpenAI TTS (구독료 없는 종량제, 톤 지시 지원)
+    OPENAI_API_KEY
+
 키가 설정된 엔진만 웹 UI에 활성화되어 나타난다.
 """
 
 from __future__ import annotations
 
+import base64
 import io
 import json
 import os
@@ -133,6 +141,107 @@ class ElevenLabsTTS:
         return out
 
 
+GOOGLE_VOICES = {
+    "ko-KR-Neural2-A": "Neural2 A (여성)",
+    "ko-KR-Neural2-B": "Neural2 B (여성)",
+    "ko-KR-Neural2-C": "Neural2 C (남성)",
+    "ko-KR-Wavenet-A": "WaveNet A (여성)",
+    "ko-KR-Wavenet-D": "WaveNet D (남성)",
+}
+
+
+class GoogleTTS:
+    """Google Cloud Text-to-Speech. WaveNet/Neural2는 월 100만 자까지 무료."""
+
+    ENDPOINT = "https://texttospeech.googleapis.com/v1/text:synthesize"
+
+    def __init__(self, voice: str = "ko-KR-Neural2-A"):
+        self.api_key = os.environ.get("GOOGLE_TTS_API_KEY", "")
+        if not self.api_key:
+            raise MissingAPIKey("GOOGLE_TTS_API_KEY 환경 변수가 필요합니다.")
+        self.voice = voice if voice in GOOGLE_VOICES else "ko-KR-Neural2-A"
+
+    def _payload(self, text: str) -> bytes:
+        return json.dumps(
+            {
+                "input": {"text": text},
+                "voice": {"languageCode": "ko-KR", "name": self.voice},
+                # 안내 방송 톤: 살짝 느리게
+                "audioConfig": {"audioEncoding": "MP3", "speakingRate": 0.93},
+            }
+        ).encode()
+
+    def synthesize(self, script: Script) -> list[AudioSegment]:
+        out = []
+        total = len(script.segments)
+        for i, seg in enumerate(script.segments):
+            req = urllib.request.Request(
+                f"{self.ENDPOINT}?key={urllib.parse.quote(self.api_key)}",
+                data=self._payload(_segment_synth_text(seg.text, is_final=(i == total - 1))),
+                headers={"Content-Type": "application/json"},
+            )
+            body = _http_bytes(req, "Google Cloud TTS")
+            audio = base64.b64decode(json.loads(body)["audioContent"])
+            out.append(AudioSegment.from_file(io.BytesIO(audio), format="mp3"))
+        return out
+
+
+OPENAI_VOICES = {
+    "nova": "Nova (밝은 여성)",
+    "shimmer": "Shimmer (차분한 여성)",
+    "coral": "Coral (또렷한 여성)",
+    "sage": "Sage (부드러운 여성)",
+    "onyx": "Onyx (저음 남성)",
+    "echo": "Echo (안내 남성)",
+}
+
+# gpt-4o-mini-tts는 자연어 톤 지시를 지원한다 — ARS 성우 톤을 명시한다.
+_OPENAI_STYLE = (
+    "당신은 한국어 ARS 안내 방송 전문 성우입니다. "
+    "차분하고 신뢰감 있는 톤으로, 또박또박 약간 느리게, "
+    "존댓말 안내 방송 특유의 정중한 억양으로 읽어 주세요."
+)
+
+
+class OpenAITTS:
+    """OpenAI TTS (gpt-4o-mini-tts). 구독료 없는 종량제, 톤 지시 지원."""
+
+    ENDPOINT = "https://api.openai.com/v1/audio/speech"
+
+    def __init__(self, voice: str = "shimmer"):
+        self.api_key = os.environ.get("OPENAI_API_KEY", "")
+        if not self.api_key:
+            raise MissingAPIKey("OPENAI_API_KEY 환경 변수가 필요합니다.")
+        self.voice = voice if voice in OPENAI_VOICES else "shimmer"
+
+    def _payload(self, text: str) -> bytes:
+        return json.dumps(
+            {
+                "model": "gpt-4o-mini-tts",
+                "voice": self.voice,
+                "input": text,
+                "instructions": _OPENAI_STYLE,
+                "response_format": "mp3",
+            }
+        ).encode()
+
+    def synthesize(self, script: Script) -> list[AudioSegment]:
+        out = []
+        total = len(script.segments)
+        for i, seg in enumerate(script.segments):
+            req = urllib.request.Request(
+                self.ENDPOINT,
+                data=self._payload(_segment_synth_text(seg.text, is_final=(i == total - 1))),
+                headers={
+                    "Authorization": f"Bearer {self.api_key}",
+                    "Content-Type": "application/json",
+                },
+            )
+            audio = _http_bytes(req, "OpenAI TTS")
+            out.append(AudioSegment.from_file(io.BytesIO(audio), format="mp3"))
+        return out
+
+
 # ── 레지스트리 ───────────────────────────────────────────────
 
 
@@ -142,6 +251,14 @@ def clova_available() -> bool:
 
 def elevenlabs_available() -> bool:
     return bool(os.environ.get("ELEVENLABS_API_KEY"))
+
+
+def google_available() -> bool:
+    return bool(os.environ.get("GOOGLE_TTS_API_KEY"))
+
+
+def openai_available() -> bool:
+    return bool(os.environ.get("OPENAI_API_KEY"))
 
 
 def engine_catalog() -> list[dict]:
@@ -156,8 +273,26 @@ def engine_catalog() -> list[dict]:
             "default_voice": DEFAULT_PRESET,
         },
         {
+            "id": "google",
+            "label": "Google Cloud TTS — 월 100만 자 무료 (API 키 필요)",
+            "available": google_available(),
+            "voices": list(GOOGLE_VOICES),
+            "voice_labels": GOOGLE_VOICES,
+            "default_voice": "ko-KR-Neural2-A",
+            "hint": "서버 환경 변수 GOOGLE_TTS_API_KEY 설정 시 활성화",
+        },
+        {
+            "id": "openai",
+            "label": "OpenAI TTS — 종량제·톤 지시 (API 키 필요)",
+            "available": openai_available(),
+            "voices": list(OPENAI_VOICES),
+            "voice_labels": OPENAI_VOICES,
+            "default_voice": "shimmer",
+            "hint": "서버 환경 변수 OPENAI_API_KEY 설정 시 활성화",
+        },
+        {
             "id": "clova",
-            "label": "CLOVA Voice — 전문 성우급 (API 키 필요)",
+            "label": "CLOVA Voice — 전문 성우급 (월 기본료 있음, API 키 필요)",
             "available": clova_available(),
             "voices": list(CLOVA_SPEAKERS),
             "voice_labels": CLOVA_SPEAKERS,
@@ -178,6 +313,10 @@ def engine_catalog() -> list[dict]:
 def create_engine(engine_id: str, voice: str):
     if engine_id == "edge" or not engine_id:
         return EdgeTTS(voice if voice in VOICE_PRESETS else DEFAULT_PRESET)
+    if engine_id == "google":
+        return GoogleTTS(voice)
+    if engine_id == "openai":
+        return OpenAITTS(voice)
     if engine_id == "clova":
         return ClovaTTS(voice)
     if engine_id == "elevenlabs":

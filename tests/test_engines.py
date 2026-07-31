@@ -8,10 +8,19 @@ from ars_voice import engines
 from ars_voice.tts import EdgeTTS
 
 
+_KEY_ENVS = [
+    "CLOVA_CLIENT_ID", "CLOVA_CLIENT_SECRET", "ELEVENLABS_API_KEY",
+    "GOOGLE_TTS_API_KEY", "OPENAI_API_KEY",
+]
+
+
+def _clear_keys(monkeypatch):
+    for env in _KEY_ENVS:
+        monkeypatch.delenv(env, raising=False)
+
+
 def test_edge_is_default_and_always_available(monkeypatch):
-    monkeypatch.delenv("CLOVA_CLIENT_ID", raising=False)
-    monkeypatch.delenv("CLOVA_CLIENT_SECRET", raising=False)
-    monkeypatch.delenv("ELEVENLABS_API_KEY", raising=False)
+    _clear_keys(monkeypatch)
 
     engine = engines.create_engine("edge", "female_calm")
     assert isinstance(engine, EdgeTTS)
@@ -20,19 +29,42 @@ def test_edge_is_default_and_always_available(monkeypatch):
 
     catalog = {e["id"]: e for e in engines.engine_catalog()}
     assert catalog["edge"]["available"] is True
-    assert catalog["clova"]["available"] is False
-    assert catalog["elevenlabs"]["available"] is False
+    for paid in ("clova", "elevenlabs", "google", "openai"):
+        assert catalog[paid]["available"] is False
 
 
 def test_paid_engines_require_keys(monkeypatch):
-    monkeypatch.delenv("CLOVA_CLIENT_ID", raising=False)
-    monkeypatch.delenv("CLOVA_CLIENT_SECRET", raising=False)
-    monkeypatch.delenv("ELEVENLABS_API_KEY", raising=False)
+    _clear_keys(monkeypatch)
 
-    with pytest.raises(engines.MissingAPIKey):
-        engines.create_engine("clova", "nara")
-    with pytest.raises(engines.MissingAPIKey):
-        engines.create_engine("elevenlabs", "voice123")
+    for engine_id, voice in [
+        ("clova", "nara"), ("elevenlabs", "voice123"),
+        ("google", "ko-KR-Neural2-A"), ("openai", "shimmer"),
+    ]:
+        with pytest.raises(engines.MissingAPIKey):
+            engines.create_engine(engine_id, voice)
+
+
+def test_google_payload(monkeypatch):
+    monkeypatch.setenv("GOOGLE_TTS_API_KEY", "gkey")
+    engine = engines.create_engine("google", "ko-KR-Wavenet-D")
+    data = json.loads(engine._payload("안내입니다."))
+    assert data["voice"]["name"] == "ko-KR-Wavenet-D"
+    assert data["voice"]["languageCode"] == "ko-KR"
+    assert data["audioConfig"]["audioEncoding"] == "MP3"
+    # 알 수 없는 화자는 기본 화자로 대체
+    assert engines.create_engine("google", "이상한값").voice == "ko-KR-Neural2-A"
+    assert {e["id"]: e for e in engines.engine_catalog()}["google"]["available"] is True
+
+
+def test_openai_payload(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "okey")
+    engine = engines.create_engine("openai", "onyx")
+    data = json.loads(engine._payload("안내입니다."))
+    assert data["model"] == "gpt-4o-mini-tts"
+    assert data["voice"] == "onyx"
+    assert "성우" in data["instructions"]
+    assert engines.create_engine("openai", "이상한값").voice == "shimmer"
+    assert {e["id"]: e for e in engines.engine_catalog()}["openai"]["available"] is True
 
 
 def test_clova_payload(monkeypatch):

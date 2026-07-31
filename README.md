@@ -82,10 +82,12 @@ ars-voice-web --reset-admin                                 # 관리자 링크 �
 
 무료 기본 엔진의 품질이 부족하면 유료 엔진 API 키를 서버 환경 변수로 설정하세요. 설정된 엔진은 웹 UI의 엔진 목록에 자동 활성화됩니다.
 
-| 엔진 | 환경 변수 | 비고 |
-|---|---|---|
-| CLOVA Voice Premium | `CLOVA_CLIENT_ID`, `CLOVA_CLIENT_SECRET` | 한국어 특화, 국내 ARS 업계에서 널리 사용. 네이버 클라우드 플랫폼에서 발급 |
-| ElevenLabs | `ELEVENLABS_API_KEY` | 다국어, voice_id 직접 입력 |
+| 엔진 | 환경 변수 | 비용 | 비고 |
+|---|---|---|---|
+| Google Cloud TTS | `GOOGLE_TTS_API_KEY` | 월 100만 자 무료 | Neural2/WaveNet 한국어 음성. Cloud 콘솔에서 Text-to-Speech API 활성화 후 API 키 발급 |
+| OpenAI TTS | `OPENAI_API_KEY` | 구독료 없는 종량제 | gpt-4o-mini-tts, "ARS 성우 톤" 지시 내장 |
+| ElevenLabs | `ELEVENLABS_API_KEY` | Starter 월 $5부터 상업 이용 | voice_id 직접 입력 |
+| CLOVA Voice Premium | `CLOVA_CLIENT_ID`, `CLOVA_CLIENT_SECRET` | 월 기본료 90,000원 + 종량 | 한국어 특화, 국내 ARS 업계 표준급 |
 
 ## 설치
 
