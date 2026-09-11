@@ -1,0 +1,50 @@
+site_name: LLM Wiki
+site_description: LLM(대규모 언어 모델) 지식 위키
+repo_url: https://github.com/alsdn2947/ars
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  language: ko
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      toggle:
+        icon: material/weather-night
+        name: 다크 모드로 전환
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      toggle:
+        icon: material/weather-sunny
+        name: 라이트 모드로 전환
+  features:
+    - navigation.sections
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.action.edit
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight
+  - tables
+  - toc:
+      permalink: true
+
+nav:
+  - 홈: index.md
+  - 기초:
+      - LLM이란: basics/what-is-llm.md
+      - LLM의 동작 원리: basics/how-it-works.md
+      - 용어 사전: basics/glossary.md
+  - 활용 가이드:
+      - 프롬프트 엔지니어링: guides/prompt-engineering.md
+      - RAG (검색 증강 생성): guides/rag.md
+      - 파인튜닝: guides/fine-tuning.md
+      - AI 에이전트: guides/agents.md
+  - 모델:
+      - 주요 모델 개요: models/overview.md
